@@ -88,6 +88,7 @@ class LibraryScreenState extends State<LibraryScreen> {
   String? _genreFilter;
   List<String> _availableGenres = [];
   bool _hideEbookOnly = false;
+  bool _collapseSeries = false;
   final List<Map<String, dynamic>> _items = [];
   bool _isLoadingPage = false;
   bool _hasMore = true;
@@ -145,6 +146,9 @@ class LibraryScreenState extends State<LibraryScreen> {
     PlayerSettings.getHideEbookOnly().then((v) {
       if (mounted) setState(() => _hideEbookOnly = v);
     });
+    PlayerSettings.getCollapseSeries().then((v) {
+      if (mounted) setState(() => _collapseSeries = v);
+    });
     PlayerSettings.settingsChanged.addListener(_onSettingsChanged);
     if (lib.selectedLibraryId != null) {
       _loadPage();
@@ -155,11 +159,18 @@ class LibraryScreenState extends State<LibraryScreen> {
   }
 
   void _onSettingsChanged() {
-    PlayerSettings.getHideEbookOnly().then((v) {
-      if (mounted && v != _hideEbookOnly) {
+    Future.wait([
+      PlayerSettings.getHideEbookOnly(),
+      PlayerSettings.getCollapseSeries(),
+    ]).then((values) {
+      final newHideEbook = values[0];
+      final newCollapse = values[1];
+      if (!mounted) return;
+      if (newHideEbook != _hideEbookOnly || newCollapse != _collapseSeries) {
         _loadGeneration++;
         setState(() {
-          _hideEbookOnly = v;
+          _hideEbookOnly = newHideEbook;
+          _collapseSeries = newCollapse;
           _items.clear();
           _page = 0;
           _hasMore = true;
@@ -273,6 +284,7 @@ class LibraryScreenState extends State<LibraryScreen> {
       sort: sort,
       desc: desc,
       filter: filter,
+      collapseSeries: _collapseSeries && !useClientFilter && !lib.isPodcastLibrary,
     );
 
     if (result != null && mounted && gen == _loadGeneration) {
@@ -507,6 +519,12 @@ class LibraryScreenState extends State<LibraryScreen> {
         },
         onFilterChanged: (filter, {String? genre}) { Navigator.pop(ctx); _changeFilter(filter, genre: genre); },
         onClearFilter: () { Navigator.pop(ctx); _changeFilter(LibraryFilter.none); },
+        collapseSeries: _collapseSeries,
+        onCollapseSeriesChanged: (value) {
+          Navigator.pop(ctx);
+          PlayerSettings.setCollapseSeries(value);
+        },
+        isPodcastLibrary: context.read<LibraryProvider>().isPodcastLibrary,
       ),
     );
   }
@@ -665,8 +683,31 @@ class LibraryScreenState extends State<LibraryScreen> {
                         ),
                       ),
                     ],
+                    if (_collapseSeries) ...[
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: () => PlayerSettings.setCollapseSeries(false),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: cs.secondary.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.auto_stories_rounded, size: 14, color: cs.secondary),
+                              const SizedBox(width: 4),
+                              Text('Series', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: cs.secondary)),
+                              const SizedBox(width: 4),
+                              Icon(Icons.close_rounded, size: 14, color: cs.secondary),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                     const Spacer(),
-                    Text('${_items.length}${_totalItems > 0 ? '/$_totalItems' : ''} books',
+                    Text('${_items.length}${_totalItems > 0 ? '/$_totalItems' : ''} ${_collapseSeries ? 'items' : 'books'}',
                       style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant.withValues(alpha: 0.6))),
                   ],
                 ),
@@ -770,7 +811,11 @@ class LibraryScreenState extends State<LibraryScreen> {
             ),
           );
         }
-        return _GridBookTile(item: _items[index]);
+        final item = _items[index];
+        if (item.containsKey('collapsedSeries')) {
+          return _GridSeriesTile(item: item);
+        }
+        return _GridBookTile(item: item);
       },
     ),
     );
@@ -899,6 +944,9 @@ class _SortFilterSheet extends StatefulWidget {
   final VoidCallback onSortDirectionToggled;
   final void Function(LibraryFilter, {String? genre}) onFilterChanged;
   final VoidCallback onClearFilter;
+  final bool collapseSeries;
+  final ValueChanged<bool> onCollapseSeriesChanged;
+  final bool isPodcastLibrary;
 
   const _SortFilterSheet({
     required this.currentSort, required this.sortAsc,
@@ -907,6 +955,8 @@ class _SortFilterSheet extends StatefulWidget {
     required this.cs, required this.tt,
     required this.onSortChanged, required this.onSortDirectionToggled,
     required this.onFilterChanged, required this.onClearFilter,
+    required this.collapseSeries, required this.onCollapseSeriesChanged,
+    required this.isPodcastLibrary,
   });
 
   @override
@@ -956,7 +1006,7 @@ class _SortFilterSheetState extends State<_SortFilterSheet> with SingleTickerPro
             ],
           ),
           SizedBox(
-            height: _genreExpanded ? 420 : 320,
+            height: _genreExpanded ? 420 : (widget.isPodcastLibrary ? 320 : 380),
             child: TabBarView(controller: _tabCtrl, children: [
               _buildSortTab(cs), _buildFilterTab(cs)]),
           ),
@@ -977,27 +1027,61 @@ class _SortFilterSheetState extends State<_SortFilterSheet> with SingleTickerPro
     ];
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      children: sorts.map((s) {
-        final (sort, label, icon) = s;
-        final selected = sort == widget.currentSort;
-        return _SheetOption(
-          icon: icon, label: label, selected: selected, selectedColor: cs.primary,
-          trailing: selected && sort != LibrarySort.random
-              ? GestureDetector(
-                  onTap: widget.onSortDirectionToggled,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(color: cs.primary.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12)),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(widget.sortAsc ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded, size: 14, color: cs.primary),
-                      const SizedBox(width: 4),
-                      Text(widget.sortAsc ? 'ASC' : 'DESC', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: cs.primary)),
-                    ]),
-                  ),
-                ) : null,
-          onTap: () => widget.onSortChanged(sort),
-        );
-      }).toList(),
+      children: [
+        ...sorts.map((s) {
+          final (sort, label, icon) = s;
+          final selected = sort == widget.currentSort;
+          return _SheetOption(
+            icon: icon, label: label, selected: selected, selectedColor: cs.primary,
+            trailing: selected && sort != LibrarySort.random
+                ? GestureDetector(
+                    onTap: widget.onSortDirectionToggled,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(color: cs.primary.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12)),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(widget.sortAsc ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded, size: 14, color: cs.primary),
+                        const SizedBox(width: 4),
+                        Text(widget.sortAsc ? 'ASC' : 'DESC', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: cs.primary)),
+                      ]),
+                    ),
+                  ) : null,
+            onTap: () => widget.onSortChanged(sort),
+          );
+        }),
+        if (!widget.isPodcastLibrary) ...[
+          const SizedBox(height: 8),
+          Divider(color: cs.outlineVariant.withValues(alpha: 0.3), height: 1),
+          const SizedBox(height: 8),
+          GestureDetector(
+            onTap: () => widget.onCollapseSeriesChanged(!widget.collapseSeries),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              margin: const EdgeInsets.only(bottom: 4),
+              decoration: BoxDecoration(
+                color: widget.collapseSeries ? cs.secondary.withValues(alpha: 0.12) : Colors.transparent,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Row(children: [
+                Icon(Icons.auto_stories_rounded, size: 20,
+                  color: widget.collapseSeries ? cs.secondary : cs.onSurfaceVariant),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text('Collapse Series', style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: widget.collapseSeries ? FontWeight.w600 : FontWeight.w400,
+                    color: widget.collapseSeries ? cs.secondary : cs.onSurface)),
+                ),
+                Switch(
+                  value: widget.collapseSeries,
+                  onChanged: widget.onCollapseSeriesChanged,
+                  activeThumbColor: cs.secondary,
+                ),
+              ]),
+            ),
+          ),
+        ],
+      ],
     );
   }
 
@@ -1352,6 +1436,132 @@ class _GridBookTileState extends State<_GridBookTile> {
       color: cs.surfaceContainerHighest,
       child: Center(
         child: Icon(Icons.headphones_rounded,
+            size: 24, color: cs.onSurfaceVariant.withValues(alpha: 0.3)),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Grid series tile (collapsed series in browse grid)
+// ═══════════════════════════════════════════════════════════════
+class _GridSeriesTile extends StatelessWidget {
+  final Map<String, dynamic> item;
+  const _GridSeriesTile({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final lib = context.watch<LibraryProvider>();
+    final auth = context.read<AuthProvider>();
+
+    final itemId = item['id'] as String? ?? '';
+    final collapsedSeries = item['collapsedSeries'] as Map<String, dynamic>? ?? {};
+    final seriesName = collapsedSeries['name'] as String? ?? 'Unknown Series';
+    final seriesId = collapsedSeries['id'] as String? ?? '';
+    final numBooks = collapsedSeries['numBooks'] as int? ?? 0;
+    final media = item['media'] as Map<String, dynamic>? ?? {};
+    final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
+    final author = metadata['authorName'] as String? ?? '';
+    final coverUrl = lib.getCoverUrl(itemId);
+
+    return GestureDetector(
+      onTap: () {
+        if (seriesId.isNotEmpty) {
+          showSeriesBooksSheet(
+            context,
+            seriesName: seriesName,
+            seriesId: seriesId,
+            books: const [],
+            serverUrl: auth.serverUrl,
+            token: auth.token,
+          );
+        }
+      },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AspectRatio(
+            aspectRatio: 1,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  // Cover image (first book in series)
+                  coverUrl != null
+                      ? coverUrl.startsWith('/')
+                          ? Image.file(File(coverUrl), fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => _placeholder(cs))
+                          : CachedNetworkImage(
+                              imageUrl: coverUrl,
+                              fit: BoxFit.cover,
+                              httpHeaders: lib.mediaHeaders,
+                              placeholder: (_, __) => _placeholder(cs),
+                              errorWidget: (_, __, ___) => _placeholder(cs),
+                            )
+                      : _placeholder(cs),
+
+                  // Book count badge — top-right
+                  Positioned(
+                    top: 6,
+                    right: 6,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: cs.primaryContainer,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.auto_stories_rounded, size: 11, color: cs.onPrimaryContainer),
+                          const SizedBox(width: 3),
+                          Text('$numBooks',
+                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700,
+                              color: cs.onPrimaryContainer)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 5),
+          // Series name
+          Text(
+            seriesName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: tt.labelSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: cs.onSurface,
+              fontSize: 11,
+            ),
+          ),
+          // Author
+          if (author.isNotEmpty)
+            Text(
+              author,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: tt.labelSmall?.copyWith(
+                color: cs.onSurfaceVariant,
+                fontSize: 10,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _placeholder(ColorScheme cs) {
+    return Container(
+      color: cs.surfaceContainerHighest,
+      child: Center(
+        child: Icon(Icons.auto_stories_rounded,
             size: 24, color: cs.onSurfaceVariant.withValues(alpha: 0.3)),
       ),
     );

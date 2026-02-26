@@ -120,6 +120,9 @@ class PlayerSettings {
   static Future<bool> getHideEbookOnly() => _get('hideEbookOnly', false);
   static Future<void> setHideEbookOnly(bool value) => _set('hideEbookOnly', value, notify: true);
 
+  static Future<bool> getCollapseSeries() => _get('collapseSeries', false);
+  static Future<void> setCollapseSeries(bool value) => _set('collapseSeries', value, notify: true);
+
   static Future<bool> getShowGoodreadsButton() => _get('showGoodreadsButton', false);
   static Future<void> setShowGoodreadsButton(bool value) => _set('showGoodreadsButton', value);
 

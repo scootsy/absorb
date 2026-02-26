@@ -165,12 +165,14 @@ class ApiService {
     int desc = 1,
     String? filter,
     bool expanded = false,
+    bool collapseSeries = false,
   }) async {
     try {
       var url = '$_cleanBaseUrl/api/libraries/$libraryId/items'
           '?page=$page&limit=$limit&sort=$sort&desc=$desc';
       if (filter != null) url += '&filter=$filter';
       if (expanded) url += '&minified=0';
+      if (collapseSeries) url += '&collapseseries=1';
       final response = await http.get(
         Uri.parse(url),
         headers: _headers,
