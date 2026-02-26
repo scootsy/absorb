@@ -41,6 +41,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _hideEbookOnly = false;
   bool _showGoodreadsButton = false;
   bool _loggingEnabled = false;
+  bool _fullScreenPlayer = false;
   String _themeMode = 'dark';
   bool _loaded = false;
   String _downloadLocationLabel = 'App Internal Storage (Default)';
@@ -69,6 +70,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final hideEbook = await PlayerSettings.getHideEbookOnly();
     final showGoodreads = await PlayerSettings.getShowGoodreadsButton();
     final logging = await PlayerSettings.getLoggingEnabled();
+    final fullScreen = await PlayerSettings.getFullScreenPlayer();
     final theme = await PlayerSettings.getThemeMode();
 
     final dlLabel = await DownloadService().downloadLocationLabel;
@@ -90,6 +92,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _hideEbookOnly = hideEbook;
       _showGoodreadsButton = showGoodreads;
       _loggingEnabled = logging;
+      _fullScreenPlayer = fullScreen;
       _themeMode = theme;
       _downloadLocationLabel = dlLabel;
       _totalDownloadSizeBytes = dlSize;
@@ -129,40 +132,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Text('Tips & Hidden Features', style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w600)),
               ]),
               const SizedBox(height: 20),
-              _tipCard(cs, tt,
-                icon: Icons.airplanemode_active_rounded,
-                title: 'Offline Mode',
-                desc: 'Tap the airplane button on the Absorbing screen to enter offline mode. This stops syncing, saves data, and only shows your downloaded books. Great for flights or low signal areas.',
-              ),
-              _tipCard(cs, tt,
-                icon: Icons.stop_rounded,
-                title: 'Stop & Sync',
-                desc: 'The "Stop & Sync" button in the Absorbing header fully stops playback and syncs your progress to the server. Use it when you\'re done listening for the day.',
-              ),
+              // ── Hidden gestures (most non-obvious first) ──
               _tipCard(cs, tt,
                 icon: Icons.bookmark_added_rounded,
                 title: 'Quick Bookmarks',
                 desc: 'Long-press the bookmark button on any card to instantly drop a bookmark at your current position without opening the bookmark sheet.',
               ),
               _tipCard(cs, tt,
-                icon: Icons.history_rounded,
-                title: 'Playback History',
-                desc: 'Tap the History button on any card to see a timeline of every play, pause, seek, and speed change. Tap any event to jump back to that position.',
+                icon: Icons.fullscreen_rounded,
+                title: 'Full Screen Player',
+                desc: 'Tap the cover art on the active card to open a full screen player view. Swipe down to dismiss it. You can also enable "Full screen player" in Settings to auto-open it whenever playback starts.',
               ),
               _tipCard(cs, tt,
-                icon: Icons.speed_rounded,
-                title: 'Speed-Adjusted Time',
-                desc: 'Time remaining and chapter times automatically adjust based on your playback speed. Listening at 1.5x? The time shown reflects how long it\'ll actually take you.',
-              ),
-              _tipCard(cs, tt,
-                icon: Icons.auto_stories_rounded,
-                title: 'Series Navigation',
-                desc: 'Tap the series name in any book\'s detail popup to see all books in the series, sorted in reading order with sequence badges on each cover.',
+                icon: Icons.edit_note_rounded,
+                title: 'Edit Bookmarks',
+                desc: 'Long-press any bookmark in the bookmark sheet to edit its title and add notes.',
               ),
               _tipCard(cs, tt,
                 icon: Icons.vibration_rounded,
                 title: 'Shake to Extend Sleep',
                 desc: 'If you have a sleep timer running and shake your phone, it\'ll add extra minutes. Configure the amount in Settings under Sleep Timer.',
+              ),
+              // ── Semi-hidden features ──
+              _tipCard(cs, tt,
+                icon: Icons.auto_stories_rounded,
+                title: 'Series Navigation',
+                desc: 'Tap the series name in any book\'s detail popup to see all books in the series, sorted in reading order with sequence badges on each cover.',
               ),
               _tipCard(cs, tt,
                 icon: Icons.swipe_rounded,
@@ -175,6 +170,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 desc: 'Tap anywhere on the chapter or book progress bar to jump directly to that position. You can also drag the bars for fine-grained control.',
               ),
               _tipCard(cs, tt,
+                icon: Icons.speed_rounded,
+                title: 'Speed-Adjusted Time',
+                desc: 'Time remaining and chapter times automatically adjust based on your playback speed. Listening at 1.5x? The time shown reflects how long it\'ll actually take you.',
+              ),
+              _tipCard(cs, tt,
+                icon: Icons.history_rounded,
+                title: 'Playback History',
+                desc: 'Tap the History button on any card to see a timeline of every play, pause, seek, and speed change. Tap any event to jump back to that position.',
+              ),
+              // ── Settings-based & obvious features ──
+              _tipCard(cs, tt,
                 icon: Icons.replay_rounded,
                 title: 'Auto-Rewind',
                 desc: 'When you resume after a pause, Absorb automatically rewinds a few seconds so you don\'t lose your place. The rewind amount scales with how long you were away. Configure it in Settings.',
@@ -183,6 +189,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 icon: Icons.skip_next_rounded,
                 title: 'Auto-Continue Series',
                 desc: 'When you finish a book that\'s part of a series, Absorb can automatically queue up the next book. Enable this in Settings under Playback.',
+              ),
+              _tipCard(cs, tt,
+                icon: Icons.airplanemode_active_rounded,
+                title: 'Offline Mode',
+                desc: 'Tap the airplane button on the Absorbing screen to enter offline mode. This stops syncing, saves data, and only shows your downloaded books. Great for flights or low signal areas.',
+              ),
+              _tipCard(cs, tt,
+                icon: Icons.stop_rounded,
+                title: 'Stop & Sync',
+                desc: 'The "Stop & Sync" button in the Absorbing header fully stops playback and syncs your progress to the server. Use it when you\'re done listening for the day.',
               ),
               _tipCard(cs, tt,
                 icon: Icons.download_rounded,
@@ -546,6 +562,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       onChanged: _loaded ? (v) {
                         setState(() => _speedAdjustedTime = v);
                         PlayerSettings.setSpeedAdjustedTime(v);
+                      } : null,
+                    ),
+                    const Divider(height: 1, indent: 16, endIndent: 16),
+                    SwitchListTile(
+                      title: const Text('Full screen player'),
+                      subtitle: Text(
+                        _fullScreenPlayer ? 'On — books open in full screen when played' : 'Off — play within card view',
+                        style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                      value: _fullScreenPlayer,
+                      onChanged: _loaded ? (v) {
+                        setState(() => _fullScreenPlayer = v);
+                        PlayerSettings.setFullScreenPlayer(v);
                       } : null,
                     ),
                     const Divider(height: 1, indent: 16, endIndent: 16),
