@@ -33,6 +33,8 @@ class AbsorbingCard extends StatefulWidget {
 
 class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveClientMixin {
   ColorScheme? _coverScheme;
+  Brightness? _coverBrightness; // brightness used to generate _coverScheme
+  ImageProvider? _coverProvider; // cached for re-deriving on theme change
   bool _isStarting = false;
   List<dynamic>? _fetchedChapters;
   StreamSubscription<Duration>? _chapterTrackSub;
@@ -147,12 +149,21 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Re-derive cover color scheme when theme brightness changes
+    _rederiveCoverScheme();
+  }
+
+  @override
   void didUpdateWidget(AbsorbingCard old) {
     super.didUpdateWidget(old);
     final oldId = old.item['id'] as String? ?? '';
     if (oldId != _itemId) {
       // Item changed — reset all stale state
       _coverScheme = null;
+      _coverBrightness = null;
+      _coverProvider = null;
       _blurredCover?.dispose();
       _blurredCover = null;
       _fetchedChapters = null;
@@ -170,8 +181,21 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
   }
 
   void _onCoverLoaded(ImageProvider provider) {
-    if (_coverScheme != null) return;
-    ColorScheme.fromImageProvider(provider: provider, brightness: Theme.of(context).brightness)
+    _coverProvider = provider;
+    _rederiveCoverScheme();
+    // Precache the blurred version of the cover
+    if (_blurredCover == null) {
+      _precacheBlur(provider);
+    }
+  }
+
+  void _rederiveCoverScheme() {
+    final provider = _coverProvider;
+    if (provider == null) return;
+    final brightness = Theme.of(context).brightness;
+    if (_coverScheme != null && _coverBrightness == brightness) return;
+    _coverBrightness = brightness;
+    ColorScheme.fromImageProvider(provider: provider, brightness: brightness)
         .then((s) {
           if (mounted) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -180,10 +204,6 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
           }
         })
         .catchError((_) {});
-    // Precache the blurred version of the cover
-    if (_blurredCover == null) {
-      _precacheBlur(provider);
-    }
   }
 
   /// Resolve the image, render it blurred to an offscreen canvas, cache the result.

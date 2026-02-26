@@ -72,6 +72,8 @@ class ExpandedCard extends StatefulWidget {
 
 class _ExpandedCardState extends State<ExpandedCard> {
   ColorScheme? _coverScheme;
+  Brightness? _coverBrightness;
+  ImageProvider? _coverProvider;
   ui.Image? _blurredCover;
   List<dynamic>? _fetchedChapters;
   bool _isStarting = false;
@@ -151,6 +153,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _ownRoute ??= ModalRoute.of(context);
+    _rederiveCoverScheme();
   }
 
   @override
@@ -243,6 +246,8 @@ class _ExpandedCardState extends State<ExpandedCard> {
     setState(() {
       _item = newItem!;
       _coverScheme = null;
+      _coverBrightness = null;
+      _coverProvider = null;
       _fetchedChapters = null;
       _lastChapterIdx = -1;
     });
@@ -305,8 +310,17 @@ class _ExpandedCardState extends State<ExpandedCard> {
   }
 
   void _onCoverLoaded(ImageProvider provider) {
-    if (_coverScheme != null) return;
-    ColorScheme.fromImageProvider(provider: provider, brightness: Theme.of(context).brightness)
+    _coverProvider = provider;
+    _rederiveCoverScheme();
+  }
+
+  void _rederiveCoverScheme() {
+    final provider = _coverProvider;
+    if (provider == null) return;
+    final brightness = Theme.of(context).brightness;
+    if (_coverScheme != null && _coverBrightness == brightness) return;
+    _coverBrightness = brightness;
+    ColorScheme.fromImageProvider(provider: provider, brightness: brightness)
         .then((s) {
           if (mounted) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
