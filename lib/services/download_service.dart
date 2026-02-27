@@ -100,6 +100,7 @@ class DownloadService extends ChangeNotifier {
   final Map<String, DownloadInfo> _downloads = {};
   String? _activeDownloadId;
   http.Client? _httpClient;
+  bool _cancelled = false;
   String? _customDownloadPath;
 
   /// The current download directory path, or null if using default.
@@ -370,6 +371,7 @@ class DownloadService extends ChangeNotifier {
     }
 
     _activeDownloadId = itemId;
+    _cancelled = false;
     _downloads[itemId] = DownloadInfo(
       itemId: itemId,
       status: DownloadStatus.downloading,
@@ -550,16 +552,25 @@ class DownloadService extends ChangeNotifier {
 
       debugPrint('[Download] Complete: $title (${completedPaths.length} files)');
     } catch (e) {
-      debugPrint('[Download] Error: $e');
-      _downloads[itemId] = DownloadInfo(
-        itemId: itemId,
-        status: DownloadStatus.error,
-        title: title,
-        author: author,
-        coverUrl: coverUrl,
-      );
-      // Show error notification
-      await notif.showError(title: title, message: 'Download failed: $title');
+      if (_cancelled) {
+        debugPrint('[Download] Cancelled: $title');
+        _downloads.remove(itemId);
+        // Clean up partial files
+        final basePath = await downloadBasePath;
+        final bookDir = Directory('$basePath/$itemId');
+        if (bookDir.existsSync()) bookDir.deleteSync(recursive: true);
+      } else {
+        debugPrint('[Download] Error: $e');
+        _downloads[itemId] = DownloadInfo(
+          itemId: itemId,
+          status: DownloadStatus.error,
+          title: title,
+          author: author,
+          coverUrl: coverUrl,
+        );
+        // Show error notification
+        await notif.showError(title: title, message: 'Download failed: $title');
+      }
     }
 
     _activeDownloadId = null;
@@ -593,6 +604,7 @@ class DownloadService extends ChangeNotifier {
 
   void cancelDownload(String itemId) {
     if (_activeDownloadId == itemId) {
+      _cancelled = true;
       _httpClient?.close();
       _httpClient = null;
       _activeDownloadId = null;

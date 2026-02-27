@@ -62,9 +62,6 @@ dependencies:
   # Pausing for interruptions
   audio_session: ^0.1.21
 
-  # Open filex to share epub files
-  open_filex: ^4.5.0
-
   # chromecast
   flutter_chrome_cast: ^1.2.6
 

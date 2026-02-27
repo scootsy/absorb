@@ -1,11 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 import '../providers/auth_provider.dart';
@@ -261,9 +262,34 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
         style: FilledButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
       )),
       const SizedBox(height: 12),
+      if (isEbookOnly && ebookFile != null) ...[
+        GestureDetector(
+          onTap: () => _saveEbook(context, auth, ebookFile, title),
+          child: Container(
+            height: 36,
+            decoration: BoxDecoration(
+              color: cs.onSurface.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: cs.onSurface.withValues(alpha: 0.08)),
+            ),
+            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              _ebookSaving
+                  ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: cs.onSurfaceVariant))
+                  : Icon(Icons.save_alt_rounded, size: 16, color: cs.onSurfaceVariant),
+              const SizedBox(width: 6),
+              Text(
+                _ebookSaving ? 'Saving…' : 'Download eBook',
+                style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12, fontWeight: FontWeight.w500),
+              ),
+            ]),
+          ),
+        ),
+        const SizedBox(height: 8),
+      ],
       Row(children: [
-        Expanded(child: DownloadWideButton(itemId: widget.itemId, coverUrl: _coverUrl, title: title, author: authorName, accent: cs.primary)),
-        const SizedBox(width: 10),
+        if (!isEbookOnly)
+          Expanded(child: DownloadWideButton(itemId: widget.itemId, coverUrl: _coverUrl, title: title, author: authorName, accent: cs.primary)),
+        if (!isEbookOnly) const SizedBox(width: 10),
         Expanded(child: GestureDetector(
           onTap: () => isFinished
               ? _markNotFinished(context, auth, currentTime, duration)
@@ -293,10 +319,10 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
           ),
         )),
       ]),
-      if (ebookFile != null) ...[
+      if (ebookFile != null && !isEbookOnly) ...[
         const SizedBox(height: 8),
         GestureDetector(
-          onTap: () => _openEbook(context, auth, ebookFile, title),
+          onTap: () => _saveEbook(context, auth, ebookFile, title),
           child: Container(
             height: 36,
             decoration: BoxDecoration(
@@ -305,12 +331,12 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
               border: Border.all(color: cs.onSurface.withValues(alpha: 0.08)),
             ),
             child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              _ebookLoading
+              _ebookSaving
                   ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: cs.onSurfaceVariant))
-                  : Icon(Icons.menu_book_rounded, size: 16, color: cs.onSurfaceVariant),
+                  : Icon(Icons.save_alt_rounded, size: 16, color: cs.onSurfaceVariant),
               const SizedBox(width: 6),
               Text(
-                _ebookLoading ? 'Opening…' : 'Open ePub in Another App',
+                _ebookSaving ? 'Saving…' : 'Download eBook',
                 style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12, fontWeight: FontWeight.w500),
               ),
             ]),
@@ -460,11 +486,11 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
     );
   }
 
-  bool _ebookLoading = false;
+  bool _ebookSaving = false;
 
-  Future<void> _openEbook(BuildContext context, AuthProvider auth, Map<String, dynamic> ebookFile, String bookTitle) async {
-    if (_ebookLoading) return;
-    setState(() => _ebookLoading = true);
+  Future<void> _saveEbook(BuildContext context, AuthProvider auth, Map<String, dynamic> ebookFile, String bookTitle) async {
+    if (_ebookSaving) return;
+    setState(() => _ebookSaving = true);
 
     try {
       final api = auth.apiService;
@@ -479,18 +505,18 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
         return;
       }
 
-      // Get the file extension from the ebook metadata
       final ebookName = ebookFile['metadata']?['filename'] as String? ?? ebookFile['name'] as String? ?? 'book.epub';
       final ext = ebookName.contains('.') ? ebookName.substring(ebookName.lastIndexOf('.')) : '.epub';
-
-      // Download to cache directory
-      final cacheDir = await getTemporaryDirectory();
       final safeTitle = bookTitle.replaceAll(RegExp(r'[^\w\s-]'), '').trim();
-      final filePath = '${cacheDir.path}/$safeTitle$ext';
-      final file = File(filePath);
 
-      // Only download if not already cached
-      if (!file.existsSync()) {
+      // Download to cache first (reuse if already cached)
+      final cacheDir = await getTemporaryDirectory();
+      final cachedFile = File('${cacheDir.path}/$safeTitle$ext');
+      late final List<int> bytes;
+
+      if (cachedFile.existsSync()) {
+        bytes = await cachedFile.readAsBytes();
+      } else {
         final cleanBase = api.baseUrl.endsWith('/') ? api.baseUrl.substring(0, api.baseUrl.length - 1) : api.baseUrl;
         final url = '$cleanBase/api/items/${widget.itemId}/file/$ino';
         final response = await http.get(
@@ -499,7 +525,8 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
         ).timeout(const Duration(seconds: 60));
 
         if (response.statusCode == 200) {
-          await file.writeAsBytes(response.bodyBytes);
+          bytes = response.bodyBytes;
+          await cachedFile.writeAsBytes(bytes);
         } else {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -509,20 +536,30 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
         }
       }
 
-      // Open with system handler
-      final result = await OpenFilex.open(filePath);
-      if (result.type != ResultType.done && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result.message.isNotEmpty ? result.message : 'No app found to open ebook')));
-      }
-    } catch (e) {
-      debugPrint('[Ebook] Error: $e');
+      // Open system save dialog so user can choose the location
+      final savedPath = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save eBook',
+        fileName: '$safeTitle$ext',
+        bytes: Uint8List.fromList(bytes),
+      );
+
+      if (savedPath == null) return; // user cancelled
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error opening ebook: $e')));
+          SnackBar(content: Text('Saved: $safeTitle$ext'),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            duration: const Duration(seconds: 3)));
+      }
+    } catch (e) {
+      debugPrint('[Ebook] Save error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error saving ebook: $e')));
       }
     } finally {
-      if (mounted) setState(() => _ebookLoading = false);
+      if (mounted) setState(() => _ebookSaving = false);
     }
   }
 
