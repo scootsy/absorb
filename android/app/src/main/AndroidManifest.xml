@@ -27,14 +27,19 @@
                 <category android:name="android.intent.category.DEFAULT"/>
             </intent-filter>
             
-            <!-- oidc -->
-            <intent-filter>
+        </activity>
+
+        <!-- OIDC callback via Chrome Custom Tab (flutter_web_auth_2) -->
+        <activity
+            android:name="com.linusu.flutter_web_auth_2.CallbackActivity"
+            android:exported="true"
+            android:taskAffinity="">
+            <intent-filter android:label="flutter_web_auth_2">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="audiobookshelf" android:host="oauth" />
+                <data android:scheme="audiobookshelf" />
             </intent-filter>
-
         </activity>
 
         <!-- audio_service: background playback and media notification -->

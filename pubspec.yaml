@@ -57,7 +57,7 @@ dependencies:
   #OIDC
   crypto: ^3.0.3
   url_launcher: ^6.2.5
-  app_links: ^6.1.1
+  flutter_web_auth_2: ^5.0.1
 
   # Pausing for interruptions
   audio_session: ^0.1.21

@@ -3,8 +3,8 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:url_launcher/url_launcher.dart';
-import 'dart:io' show Cookie, HttpClient, HttpClientRequest, HttpHeaders;
+import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
+import 'dart:io' show HttpClient, HttpHeaders;
 
 /// Manages the OIDC/OAuth2 PKCE flow for audiobookshelf SSO login.
 class OidcService {
@@ -39,9 +39,9 @@ class OidcService {
     _codeChallenge = base64Url.encode(digest.bytes).replaceAll('=', '');
   }
 
-  /// Start the OIDC login flow.
-  /// Returns null on success (browser opened), or an error string on failure.
-  Future<String?> startLogin(String serverUrl) async {
+  /// Start the OIDC login flow using a Chrome Custom Tab.
+  /// Returns the callback [Uri] on success, or null on failure/cancellation.
+  Future<Uri?> startLogin(String serverUrl) async {
     _serverUrl = serverUrl.endsWith('/') ? serverUrl.substring(0, serverUrl.length - 1) : serverUrl;
     _generatePkce();
     _state = _generateRandom(16);
@@ -58,24 +58,23 @@ class OidcService {
     debugPrint('[OIDC] Starting auth flow: $authUrl');
 
     try {
-      // Use dart:io HttpClient to properly capture Set-Cookie headers
-      // (the http package merges them and loses data)
+      // Pre-flight request to capture cookies and get the OIDC provider redirect URL.
+      // ABS sets a session cookie that links the PKCE challenge to this flow.
       final client = HttpClient();
       client.connectionTimeout = const Duration(seconds: 15);
 
+      String? providerUrl;
       try {
         final request = await client.getUrl(Uri.parse(authUrl));
         request.followRedirects = false;
         final response = await request.close();
 
-        // Capture all cookies
+        // Capture cookies for the callback request
         final cookies = response.cookies;
         for (final cookie in cookies) {
           _rawCookies.add('${cookie.name}=${cookie.value}');
           debugPrint('[OIDC] Captured cookie: ${cookie.name}');
         }
-
-        // Also try raw header
         if (_rawCookies.isEmpty) {
           final rawSetCookie = response.headers[HttpHeaders.setCookieHeader];
           if (rawSetCookie != null) {
@@ -88,41 +87,48 @@ class OidcService {
         }
 
         if (response.statusCode == 302 || response.statusCode == 301) {
-          final location = response.headers.value(HttpHeaders.locationHeader);
-          if (location != null && location.isNotEmpty) {
-            debugPrint('[OIDC] Redirecting to OIDC provider: $location');
-
-            // Drain the response body
-            await response.drain<void>();
-
-            final uri = Uri.parse(location);
-            final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
-            if (!launched) {
-              return 'Could not open browser for SSO login';
-            }
-            return null; // Success — waiting for callback
-          }
+          providerUrl = response.headers.value(HttpHeaders.locationHeader);
           await response.drain<void>();
-          return 'Server did not return a redirect URL';
         } else {
           final body = await response.transform(utf8.decoder).join();
           debugPrint('[OIDC] Unexpected status ${response.statusCode}: $body');
-          return 'Server returned status ${response.statusCode}';
+          _cleanup();
+          return null;
         }
       } finally {
         client.close();
       }
+
+      if (providerUrl == null || providerUrl.isEmpty) {
+        debugPrint('[OIDC] Server did not return a redirect URL');
+        _cleanup();
+        return null;
+      }
+
+      debugPrint('[OIDC] Opening Custom Tab for: $providerUrl');
+
+      // Open the OIDC provider in a Chrome Custom Tab. This blocks until the
+      // provider redirects back to audiobookshelf://oauth, which the Custom Tab
+      // intercepts and returns. Unlike an external browser, Custom Tabs won't
+      // be hijacked by PWAs or other apps registered for the provider's domain.
+      final resultUrl = await FlutterWebAuth2.authenticate(
+        url: providerUrl,
+        callbackUrlScheme: 'audiobookshelf',
+      );
+
+      debugPrint('[OIDC] Custom Tab returned: $resultUrl');
+      return Uri.parse(resultUrl);
     } catch (e) {
-      debugPrint('[OIDC] Error starting login: $e');
-      return 'Failed to start SSO login: $e';
+      debugPrint('[OIDC] Error during login: $e');
+      _cleanup();
+      return null;
     }
   }
 
   /// Build a Cookie header string from stored cookies.
   String get _cookieHeader => _rawCookies.join('; ');
 
-  /// Handle the callback from the deep link.
-  /// [uri] is the full audiobookshelf://oauth?code=X&state=Y URI.
+  /// Handle the callback URI returned from the Custom Tab.
   /// Returns the user login response (same as /login) or null on failure.
   Future<Map<String, dynamic>?> handleCallback(Uri uri) async {
     final code = uri.queryParameters['code'];
@@ -156,7 +162,6 @@ class OidcService {
     debugPrint('[OIDC] Sending ${_rawCookies.length} cookies');
 
     try {
-      // Use dart:io HttpClient for proper cookie handling
       final client = HttpClient();
       client.connectionTimeout = const Duration(seconds: 15);
 
@@ -164,7 +169,6 @@ class OidcService {
         final request = await client.getUrl(Uri.parse(callbackUrl));
         request.followRedirects = false;
 
-        // Attach cookies
         if (_rawCookies.isNotEmpty) {
           request.headers.set(HttpHeaders.cookieHeader, _cookieHeader);
         }
@@ -191,9 +195,6 @@ class OidcService {
       return null;
     }
   }
-
-  /// Check if we have an active OIDC flow waiting for callback.
-  bool get isWaitingForCallback => _state != null && _codeVerifier != null;
 
   /// Clean up after flow completes or is cancelled.
   void _cleanup() {

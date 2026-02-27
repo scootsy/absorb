@@ -3,7 +3,6 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
-import 'package:app_links/app_links.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../services/oidc_service.dart';
@@ -41,7 +40,6 @@ class _LoginScreenState extends State<LoginScreen>
   // OIDC state
   OidcConfig? _oidcConfig;
   bool _isOidcLoading = false;
-  StreamSubscription? _linkSub;
 
   // Custom headers (advanced)
   bool _showAdvanced = false;
@@ -72,59 +70,6 @@ class _LoginScreenState extends State<LoginScreen>
     _animController.forward();
     _serverController.addListener(_onServerChanged);
     _loadVersion();
-    _initDeepLinkListener();
-  }
-
-  /// Listen for deep links (audiobookshelf://oauth callback).
-  void _initDeepLinkListener() {
-    final appLinks = AppLinks();
-    _linkSub = appLinks.uriLinkStream.listen((uri) {
-      debugPrint('[Login] Deep link received: $uri');
-      if (uri.scheme == 'audiobookshelf' && uri.host == 'oauth') {
-        _handleOidcCallback(uri);
-      }
-    });
-  }
-
-  /// Handle the OIDC callback URI from deep link.
-  Future<void> _handleOidcCallback(Uri uri) async {
-    final oidc = OidcService();
-    if (!oidc.isWaitingForCallback) {
-      debugPrint('[Login] No OIDC flow in progress, ignoring callback');
-      return;
-    }
-
-    setState(() {
-      _isOidcLoading = true;
-      _loginError = null;
-    });
-
-    final result = await oidc.handleCallback(uri);
-    if (result != null && mounted) {
-      final serverText = _serverController.text.trim();
-      final cleanUrl = serverText.replaceAll(RegExp(r'^https?://'), '');
-      final fullUrl = '$_protocol$cleanUrl';
-
-      final auth = context.read<AuthProvider>();
-      final success = await auth.loginWithOidc(
-        serverUrl: fullUrl,
-        result: result,
-      );
-
-      if (mounted) {
-        setState(() => _isOidcLoading = false);
-        if (!success) {
-          setState(() => _loginError = auth.errorMessage ?? 'SSO login failed');
-        } else if (Navigator.of(context).canPop()) {
-          Navigator.of(context).pop();
-        }
-      }
-    } else if (mounted) {
-      setState(() {
-        _isOidcLoading = false;
-        _loginError = 'SSO authentication failed. Please try again.';
-      });
-    }
   }
 
   Future<void> _loadVersion() async {
@@ -137,7 +82,6 @@ class _LoginScreenState extends State<LoginScreen>
   @override
   void dispose() {
     _debounce?.cancel();
-    _linkSub?.cancel();
     _animController.dispose();
     _serverController.dispose();
     _usernameController.dispose();
@@ -302,15 +246,37 @@ class _LoginScreenState extends State<LoginScreen>
     final cleanUrl = serverText.replaceAll(RegExp(r'^https?://'), '');
     final fullUrl = '$_protocol$cleanUrl';
 
-    final error = await OidcService().startLogin(fullUrl);
-    if (error != null && mounted) {
+    final oidc = OidcService();
+    final callbackUri = await oidc.startLogin(fullUrl);
+    if (callbackUri == null) {
+      if (mounted) setState(() {
+        _isOidcLoading = false;
+        _loginError = 'SSO login failed or was cancelled';
+      });
+      return;
+    }
+
+    final result = await oidc.handleCallback(callbackUri);
+    if (result != null && mounted) {
+      final auth = context.read<AuthProvider>();
+      final success = await auth.loginWithOidc(
+        serverUrl: fullUrl,
+        result: result,
+      );
+      if (mounted) {
+        setState(() => _isOidcLoading = false);
+        if (!success) {
+          setState(() => _loginError = auth.errorMessage ?? 'SSO login failed');
+        } else if (Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+        }
+      }
+    } else if (mounted) {
       setState(() {
         _isOidcLoading = false;
-        _loginError = error;
+        _loginError = 'SSO authentication failed. Please try again.';
       });
     }
-    // If no error, we're waiting for the deep link callback.
-    // _isOidcLoading stays true until callback arrives.
   }
 
   @override
