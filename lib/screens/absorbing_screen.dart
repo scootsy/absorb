@@ -74,15 +74,14 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
         _suppressReorder = currentPage > 0;
         WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToActiveCard());
       } else if (wasPlayingId != null && !_isSyncing) {
-        // Book/episode just stopped (natural completion or session end)
+        // Playback stopped — keep this item at the front of the list.
+        // Don't call markFinishedLocally here: actual completion is handled
+        // by _onBookFinishedCallback, which fires from the player service.
         _suppressReorder = false;
-        // For podcast episodes, use compound key
         final finishedKey = wasEpisodeId != null
             ? '$wasPlayingId-$wasEpisodeId'
             : wasPlayingId;
         _lastFinishedId = finishedKey;
-        final lib = context.read<LibraryProvider>();
-        lib.markFinishedLocally(finishedKey);
       }
     }
     setState(() {});
@@ -128,6 +127,14 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
 
   Future<void> _stopAndRefresh(LibraryProvider lib) async {
     if (_isSyncing) return;
+    // Capture what was playing before stopping, so _lastFinishedId survives
+    // the _isSyncing guard in _rebuild and keeps the card at the front.
+    if (_player.hasBook && _player.currentItemId != null) {
+      final epId = _player.currentEpisodeId;
+      _lastFinishedId = epId != null
+          ? '${_player.currentItemId!}-$epId'
+          : _player.currentItemId!;
+    }
     setState(() => _isSyncing = true);
     if (_player.hasBook) {
       await _player.pause();
@@ -143,6 +150,29 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
     final lib = context.read<LibraryProvider>();
     if (lib.isOffline) return;
     await lib.refresh();
+  }
+
+  /// Confirm before syncing when idle — server positions will overwrite local.
+  Future<void> _confirmAndSync(LibraryProvider lib) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sync with server?'),
+        content: const Text(
+          'This will pull fresh positions from the server. '
+          'Any local progress will be replaced with whatever '
+          'the server has.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Sync')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _isSyncing = true);
+    await _pullRefresh();
+    if (mounted) setState(() => _isSyncing = false);
   }
 
   /// Derive the absorbing key for an item map: compound "itemId-episodeId" for
@@ -249,7 +279,8 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
     // When nothing is playing, keep the last-finished item at the front
     // Only if it matches the current library type
     if (!_player.hasBook && _lastFinishedId != null && !removes.contains(_lastFinishedId)) {
-      final finishedIsPodcast = _lastFinishedId!.contains('-');
+      // Compound podcast keys are "uuid-uuid" (>36 chars); plain book UUIDs are 36.
+      final finishedIsPodcast = _lastFinishedId!.length > 36;
       if (finishedIsPodcast == isPod) {
         final finishedIdx = items.indexWhere((b) => _absorbingKey(b) == _lastFinishedId);
         if (finishedIdx > 0) {
@@ -335,11 +366,7 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
                       if (_player.hasBook) {
                         _stopAndRefresh(lib);
                       } else {
-                        () async {
-                          setState(() => _isSyncing = true);
-                          await _pullRefresh();
-                          if (mounted) setState(() => _isSyncing = false);
-                        }();
+                        _confirmAndSync(lib);
                       }
                     },
                     child: AnimatedContainer(

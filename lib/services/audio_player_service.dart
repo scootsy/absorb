@@ -498,6 +498,9 @@ class AudioPlayerService extends ChangeNotifier {
   String? _playbackSessionId;
   bool _isOfflineMode = false;
   StreamSubscription? _syncSub;
+  StreamSubscription? _completionSub;
+  /// Last known position in seconds — used to detect end→0 position jumps.
+  double _lastKnownPositionSec = 0;
   // ── Multi-file track offset tracking ──
   // For ConcatenatingAudioSource, _player.position is track-relative.
   // We store cumulative start offsets so we can compute absolute book position.
@@ -890,32 +893,25 @@ class AudioPlayerService extends ChangeNotifier {
           _playbackSessionId = sessionData['id'] as String?;
           debugPrint('[Player] Got server session for local playback: $_playbackSessionId');
 
-          // Compare server position vs local position — last-write-wins
+          // Compare server position vs local — always use whichever is further ahead.
+          // You can't un-listen to a book, so the furthest position is the most recent.
+          // (Session updatedAt is unreliable — it reflects session creation time, not
+          // when progress was actually last updated.)
           final serverPos = (sessionData['currentTime'] as num?)?.toDouble() ?? 0;
-          if (serverPos > 0) {
-            // Get local timestamp to compare
-            final localData = await _progressSync.getLocal(itemId);
-            final localTimestamp = (localData?['timestamp'] as num?)?.toInt() ?? 0;
-
-            // Server session has updatedAt in epoch ms
-            final serverTimestamp = (sessionData['updatedAt'] as num?)?.toInt() ?? 0;
-
-            if (serverTimestamp > localTimestamp && (serverPos - startTime).abs() > 1.0) {
-              debugPrint('[Player] Server position is newer: server=${serverPos}s ($serverTimestamp) vs local=${startTime}s ($localTimestamp) — using server');
-              startTime = serverPos;
-              // Update local to match
-              await _progressSync.saveLocal(
-                itemId: itemId,
-                currentTime: serverPos,
-                duration: totalDuration,
-                speed: 1.0,
-              );
-            } else if (startTime == 0 && serverPos > 0) {
-              debugPrint('[Player] No local position, using server: ${serverPos}s');
-              startTime = serverPos;
-            } else {
-              debugPrint('[Player] Local position is newer: local=${startTime}s ($localTimestamp) vs server=${serverPos}s ($serverTimestamp) — keeping local');
-            }
+          if (serverPos > startTime + 1.0) {
+            debugPrint('[Player] Server position is ahead: server=${serverPos}s vs local=${startTime}s — using server');
+            startTime = serverPos;
+            await _progressSync.saveLocal(
+              itemId: itemId,
+              currentTime: serverPos,
+              duration: totalDuration,
+              speed: 1.0,
+            );
+          } else if (startTime > 0) {
+            debugPrint('[Player] Local position is ahead: local=${startTime}s vs server=${serverPos}s — keeping local');
+          } else if (serverPos > 0) {
+            debugPrint('[Player] No local position, using server: ${serverPos}s');
+            startTime = serverPos;
           }
         } else {
           debugPrint('[Player] startPlaybackSession returned null');
@@ -1039,26 +1035,17 @@ class AudioPlayerService extends ChangeNotifier {
       }
     }
 
-    // Compare server position vs local position — last-write-wins
+    // Compare server position vs local — always use whichever is further ahead.
+    // You can't un-listen to a book, so the furthest position is the most recent.
     final serverPos = (sessionData['currentTime'] as num?)?.toDouble() ?? 0;
-    if (serverPos > 0) {
-      // Use compound key for podcast episodes to match how progress is saved
-      final progressKey = _currentEpisodeId != null
-          ? '$_currentItemId-$_currentEpisodeId'
-          : itemId;
-      final localData = await _progressSync.getLocal(progressKey);
-      final localTimestamp = (localData?['timestamp'] as num?)?.toInt() ?? 0;
-      final serverTimestamp = (sessionData['updatedAt'] as num?)?.toInt() ?? 0;
-
-      if (serverTimestamp > localTimestamp && (serverPos - startTime).abs() > 1.0) {
-        debugPrint('[Player] Server position is newer: server=${serverPos}s ($serverTimestamp) vs local=${startTime}s ($localTimestamp) — using server');
-        startTime = serverPos;
-      } else if (startTime == 0) {
-        debugPrint('[Player] No local position, using server: ${serverPos}s');
-        startTime = serverPos;
-      } else {
-        debugPrint('[Player] Local position is newer: local=${startTime}s ($localTimestamp) vs server=${serverPos}s ($serverTimestamp) — keeping local');
-      }
+    if (serverPos > startTime + 1.0) {
+      debugPrint('[Player] Server position is ahead: server=${serverPos}s vs local=${startTime}s — using server');
+      startTime = serverPos;
+    } else if (startTime > 0) {
+      debugPrint('[Player] Local position is ahead: local=${startTime}s vs server=${serverPos}s — keeping local');
+    } else if (serverPos > 0) {
+      debugPrint('[Player] No local position, using server: ${serverPos}s');
+      startTime = serverPos;
     }
 
     try {
@@ -1161,6 +1148,9 @@ class AudioPlayerService extends ChangeNotifier {
     _indexSub = null;
     _syncSub?.cancel();
     _syncSub = null;
+    _completionSub?.cancel();
+    _completionSub = null;
+    _lastKnownPositionSec = 0;
     _eqSessionSub?.cancel();
     _eqSessionSub = null;
     notifyListeners();
@@ -1206,28 +1196,56 @@ class AudioPlayerService extends ChangeNotifier {
 
   void _setupSync() {
     _syncSub?.cancel();
+    _completionSub?.cancel();
     _lastSyncSecond = -1;
+    _lastKnownPositionSec = 0;
 
     // Attach equalizer to current audio session
     _attachEqualizer();
+
+    // ─── Primary completion detection via processingState ───
+    // This fires reliably when ExoPlayer reaches STATE_ENDED, before any
+    // position-reset can confuse the position-based detection.
+    _completionSub = _player?.processingStateStream.listen((state) {
+      if (state == ProcessingState.completed && _currentItemId != null) {
+        debugPrint('[Player] processingState → completed');
+        _onPlaybackComplete();
+      }
+    });
 
     _syncSub = _player?.positionStream.listen((trackRelativePos) async {
       // Convert track-relative position to absolute book position
       final absolutePos = position; // uses the getter which adds track offset
       final sec = absolutePos.inSeconds;
+      final posSec = absolutePos.inMilliseconds / 1000.0;
+
+      // ─── Position-reset guard ────────────────────────────
+      // ExoPlayer can seek to 0 on STATE_ENDED. If we were near the end
+      // and suddenly jump to near 0 without a user seek, treat it as
+      // completion rather than restarting playback.
+      if (_lastKnownPositionSec > 0 && _totalDuration > 0) {
+        final wasNearEnd = _lastKnownPositionSec >= _totalDuration - 5.0;
+        final nowNearStart = posSec < 2.0;
+        if (wasNearEnd && nowNearStart) {
+          debugPrint('[Player] Position jumped from ${_lastKnownPositionSec.toStringAsFixed(1)}s to ${posSec.toStringAsFixed(1)}s — treating as completion');
+          _onPlaybackComplete();
+          return;
+        }
+      }
+      if (posSec > 0) _lastKnownPositionSec = posSec;
+
       if (sec <= 0) return;
 
       // ─── Chapter change detection ──────────────────────────
       // Update notification subtitle when the chapter changes
       if (_chapters.isNotEmpty && _currentItemId != null) {
-        final posSeconds = absolutePos.inMilliseconds / 1000.0;
         int chapterIdx = -1;
         String? chapterTitle;
         for (int i = 0; i < _chapters.length; i++) {
           final ch = _chapters[i] as Map<String, dynamic>;
           final start = (ch['start'] as num?)?.toDouble() ?? 0;
           final end = (ch['end'] as num?)?.toDouble() ?? 0;
-          if (posSeconds >= start && posSeconds < end) {
+          if (posSec >= start && posSec < end) {
             chapterIdx = i;
             chapterTitle = ch['title'] as String?;
             break;
@@ -1243,10 +1261,9 @@ class AudioPlayerService extends ChangeNotifier {
         }
       }
 
-      // ─── Completion detection ─────────────────────────────
-      // Check if we've reached the end of the book
-      final posSeconds = absolutePos.inMilliseconds / 1000.0;
-      if (_totalDuration > 0 && posSeconds >= _totalDuration - 1.0) {
+      // ─── Completion detection (fallback) ───────────────────
+      // processingStateStream is the primary signal; this is a safety net.
+      if (_totalDuration > 0 && posSec >= _totalDuration - 1.0) {
         _onPlaybackComplete();
         return;
       }
@@ -1298,8 +1315,14 @@ class AudioPlayerService extends ChangeNotifier {
     debugPrint('[Player] Book complete: $_currentTitle');
     _logEvent(PlaybackEventType.pause, detail: 'Book finished');
 
-    // Pause immediately so audio doesn't keep running
-    await _player?.pause();
+    // Stop immediately to prevent ExoPlayer from seeking back to position 0
+    // (which triggers position-stream events that look like a restart).
+    // Cancel subscriptions first so we don't process stale events.
+    _syncSub?.cancel();
+    _syncSub = null;
+    _completionSub?.cancel();
+    _completionSub = null;
+    await _player?.stop();
 
     // Mark as finished on the server
     final itemId = _currentItemId;
@@ -1346,8 +1369,7 @@ class AudioPlayerService extends ChangeNotifier {
       _onBookFinishedCallback?.call(itemId);
     }
 
-    // Stop and clear state
-    await _player?.stop();
+    // Clear state (player already stopped at top of method)
     _clearState();
     _chapters = [];
     _isCompletingBook = false;
