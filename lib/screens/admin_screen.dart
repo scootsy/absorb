@@ -82,13 +82,13 @@ class _AdminScreenState extends State<AdminScreen> {
                       padding: const EdgeInsets.fromLTRB(20, 12, 8, 0),
                       child: Row(children: [
                         const Expanded(child: AbsorbPageHeader(title: 'Server Admin', padding: EdgeInsets.zero)),
-                        IconButton(icon: const Icon(Icons.close_rounded, color: Colors.white38), onPressed: () => Navigator.pop(context)),
+                        IconButton(icon: Icon(Icons.close_rounded, color: cs.onSurfaceVariant), onPressed: () => Navigator.pop(context)),
                       ]),
                     ),
                     const SizedBox(height: 20),
 
                     // ── Server Overview ──
-                    _section(tt, 'Server'),
+                    _section(cs, tt, 'Server'),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: Container(
@@ -114,7 +114,7 @@ class _AdminScreenState extends State<AdminScreen> {
                     const SizedBox(height: 28),
 
                     // ── Manage Buttons ──
-                    _section(tt, 'Manage'),
+                    _section(cs, tt, 'Manage'),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: Column(children: [
@@ -148,13 +148,13 @@ class _AdminScreenState extends State<AdminScreen> {
 
                     // ── Active Sessions ──
                     if (_activeSessions.isNotEmpty) ...[
-                      _section(tt, 'Listening Now'),
+                      _section(cs, tt, 'Listening Now'),
                       ..._activeSessions.map((s) => _sessionCard(cs, tt, s)),
                       const SizedBox(height: 18),
                     ],
 
                     // ── Libraries ──
-                    _section(tt, 'Libraries'),
+                    _section(cs, tt, 'Libraries'),
                     ..._libraries.map((lib) => _libraryCard(cs, tt, lib)),
                   ],
                 ),
@@ -165,16 +165,16 @@ class _AdminScreenState extends State<AdminScreen> {
 
   // ─── Shared Widgets ─────────────────────────────────────────
 
-  Widget _section(TextTheme tt, String t) => Padding(
+  Widget _section(ColorScheme cs, TextTheme tt, String t) => Padding(
     padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-    child: Text(t, style: tt.labelLarge?.copyWith(color: Colors.white38, fontWeight: FontWeight.w600, letterSpacing: 0.5)));
+    child: Text(t, style: tt.labelLarge?.copyWith(color: cs.onSurfaceVariant.withValues(alpha: 0.6), fontWeight: FontWeight.w600, letterSpacing: 0.5)));
 
   BoxDecoration _cardDeco(ColorScheme cs) => BoxDecoration(color: cs.surfaceContainerHigh, borderRadius: BorderRadius.circular(16));
 
   Widget _stat(TextTheme tt, ColorScheme cs, IconData ic, String v, String l) => Expanded(child: Column(children: [
     Icon(ic, size: 18, color: cs.primary.withValues(alpha: 0.6)), const SizedBox(height: 6),
-    Text(v, style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700, color: Colors.white)), const SizedBox(height: 2),
-    Text(l, style: tt.labelSmall?.copyWith(color: Colors.white38, fontSize: 10)),
+    Text(v, style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700, color: cs.onSurface)), const SizedBox(height: 2),
+    Text(l, style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant.withValues(alpha: 0.6), fontSize: 10)),
   ]));
 
   Widget _actionBtn(ColorScheme cs, TextTheme tt, IconData ic, String l, bool loading, VoidCallback onTap) =>
@@ -182,10 +182,10 @@ class _AdminScreenState extends State<AdminScreen> {
       padding: const EdgeInsets.symmetric(vertical: 12),
       decoration: BoxDecoration(color: cs.surfaceContainerHigh, borderRadius: BorderRadius.circular(14)),
       child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-        if (loading) const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white38))
+        if (loading) SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 1.5, color: cs.onSurfaceVariant.withValues(alpha: 0.5)))
         else Icon(ic, size: 16, color: cs.primary),
         const SizedBox(width: 8),
-        Text(l, style: tt.labelMedium?.copyWith(color: loading ? Colors.white24 : Colors.white70, fontWeight: FontWeight.w600)),
+        Text(l, style: tt.labelMedium?.copyWith(color: loading ? cs.onSurface.withValues(alpha: 0.24) : cs.onSurface.withValues(alpha: 0.7), fontWeight: FontWeight.w600)),
       ])));
 
   Widget _navButton(ColorScheme cs, TextTheme tt, {required IconData icon, required String label, required String subtitle, required VoidCallback onTap}) =>
@@ -195,10 +195,10 @@ class _AdminScreenState extends State<AdminScreen> {
       child: Row(children: [
         Icon(icon, color: cs.primary, size: 22), const SizedBox(width: 14),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(label, style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w600, color: Colors.white)),
-          Text(subtitle, style: tt.bodySmall?.copyWith(color: Colors.white38)),
+          Text(label, style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w600, color: cs.onSurface)),
+          Text(subtitle, style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant.withValues(alpha: 0.6))),
         ])),
-        Icon(Icons.chevron_right_rounded, color: Colors.white.withValues(alpha: 0.15)),
+        Icon(Icons.chevron_right_rounded, color: cs.onSurface.withValues(alpha: 0.15)),
       ])));
 
   // ─── Library Card ───────────────────────────────────────────
@@ -222,17 +222,17 @@ class _AdminScreenState extends State<AdminScreen> {
           Row(children: [
             Icon(mediaType == 'podcast' ? Icons.podcasts_rounded : Icons.auto_stories_rounded, size: 20, color: cs.primary),
             const SizedBox(width: 10),
-            Expanded(child: Text(name, style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w700, color: Colors.white))),
+            Expanded(child: Text(name, style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w700, color: cs.onSurface))),
             Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(color: cs.primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
               child: Text(mediaType, style: tt.labelSmall?.copyWith(color: cs.primary, fontSize: 10, fontWeight: FontWeight.w600))),
           ]),
           const SizedBox(height: 12),
           Row(children: [
-            _mini(tt, '$totalItems', mediaType == 'podcast' ? 'shows' : 'books'),
-            if (folders > 0) _mini(tt, '$folders', 'folders'),
-            if (totalSize != null) _mini(tt, _fmtB(totalSize.toInt()), 'size'),
-            if (totalDur != null) _mini(tt, _fmtD(totalDur.toDouble()), 'duration'),
+            _mini(cs, tt, '$totalItems', mediaType == 'podcast' ? 'shows' : 'books'),
+            if (folders > 0) _mini(cs, tt, '$folders', 'folders'),
+            if (totalSize != null) _mini(cs, tt, _fmtB(totalSize.toInt()), 'size'),
+            if (totalDur != null) _mini(cs, tt, _fmtD(totalDur.toDouble()), 'duration'),
           ]),
           const SizedBox(height: 12),
           Row(children: [
@@ -243,22 +243,22 @@ class _AdminScreenState extends State<AdminScreen> {
         ])));
   }
 
-  Widget _mini(TextTheme tt, String v, String l) => Padding(padding: const EdgeInsets.only(right: 20), child: Column(
+  Widget _mini(ColorScheme cs, TextTheme tt, String v, String l) => Padding(padding: const EdgeInsets.only(right: 20), child: Column(
     crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(v, style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w700, color: Colors.white, fontSize: 13)),
-      Text(l, style: tt.labelSmall?.copyWith(color: Colors.white30, fontSize: 10)),
+      Text(v, style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w700, color: cs.onSurface, fontSize: 13)),
+      Text(l, style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant.withValues(alpha: 0.4), fontSize: 10)),
     ]));
 
   Widget _libAct(ColorScheme cs, TextTheme tt, IconData ic, String l, bool loading, VoidCallback onTap) =>
     GestureDetector(onTap: loading ? null : onTap, child: Container(
       padding: const EdgeInsets.symmetric(vertical: 8),
-      decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.04), borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.06))),
+      decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.04), borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: cs.onSurface.withValues(alpha: 0.06))),
       child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-        if (loading) const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white38))
+        if (loading) SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 1.5, color: cs.onSurfaceVariant.withValues(alpha: 0.5)))
         else Icon(ic, size: 14, color: cs.primary.withValues(alpha: 0.7)),
         const SizedBox(width: 6),
-        Text(l, style: tt.labelSmall?.copyWith(color: loading ? Colors.white24 : Colors.white54, fontWeight: FontWeight.w600, fontSize: 11)),
+        Text(l, style: tt.labelSmall?.copyWith(color: loading ? cs.onSurface.withValues(alpha: 0.24) : cs.onSurface.withValues(alpha: 0.54), fontWeight: FontWeight.w600, fontSize: 11)),
       ])));
 
   Widget _sessionCard(ColorScheme cs, TextTheme tt, dynamic session) {
@@ -278,27 +278,27 @@ class _AdminScreenState extends State<AdminScreen> {
         child: Row(children: [
           Container(width: 8, height: 8, decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: isActive ? const Color(0xFF4CAF50) : Colors.white24,
+            color: isActive ? const Color(0xFF4CAF50) : cs.onSurface.withValues(alpha: 0.24),
           )),
           const SizedBox(width: 12),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(displayTitle, style: tt.bodySmall?.copyWith(color: Colors.white, fontWeight: FontWeight.w600),
+            Text(displayTitle, style: tt.bodySmall?.copyWith(color: cs.onSurface, fontWeight: FontWeight.w600),
               maxLines: 1, overflow: TextOverflow.ellipsis),
             const SizedBox(height: 2),
             Text(
               [if (userName.isNotEmpty) userName, if (displayAuthor.isNotEmpty) displayAuthor].join(' · '),
-              style: tt.labelSmall?.copyWith(color: Colors.white38, fontSize: 10),
+              style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant.withValues(alpha: 0.5), fontSize: 10),
               maxLines: 1, overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 6),
             ClipRRect(borderRadius: BorderRadius.circular(2),
               child: LinearProgressIndicator(value: progress.toDouble(),
-                minHeight: 2, backgroundColor: Colors.white.withValues(alpha: 0.06),
-                valueColor: AlwaysStoppedAnimation(isActive ? cs.primary : Colors.white24))),
+                minHeight: 2, backgroundColor: cs.onSurface.withValues(alpha: 0.06),
+                valueColor: AlwaysStoppedAnimation(isActive ? cs.primary : cs.onSurface.withValues(alpha: 0.24)))),
           ])),
           const SizedBox(width: 12),
           Text('${_fmtD(currentTime.toDouble())} / ${_fmtD(duration.toDouble())}',
-            style: tt.labelSmall?.copyWith(color: Colors.white24, fontSize: 9)),
+            style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.24), fontSize: 9)),
         ])),
     );
   }

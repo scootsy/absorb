@@ -43,7 +43,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
             padding: const EdgeInsets.fromLTRB(20, 12, 8, 0),
             child: Row(children: [
               const Expanded(child: AbsorbPageHeader(title: 'Users', padding: EdgeInsets.zero)),
-              IconButton(icon: const Icon(Icons.close_rounded, color: Colors.white38), onPressed: () => Navigator.pop(context)),
+              IconButton(icon: Icon(Icons.close_rounded, color: cs.onSurfaceVariant), onPressed: () => Navigator.pop(context)),
             ]),
           ),
           const SizedBox(height: 16),
@@ -90,7 +90,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
             ],
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
-                Flexible(child: Text(username, style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600, color: Colors.white), overflow: TextOverflow.ellipsis)),
+                Flexible(child: Text(username, style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600, color: cs.onSurface), overflow: TextOverflow.ellipsis)),
                 const SizedBox(width: 6),
                 if (type == 'root') Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
@@ -111,7 +111,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                 Text('Disabled', style: tt.labelSmall?.copyWith(color: Colors.red.withValues(alpha: 0.5), fontSize: 10)),
               ],
             ])),
-            Icon(Icons.chevron_right_rounded, size: 18, color: Colors.white.withValues(alpha: 0.15)),
+            Icon(Icons.chevron_right_rounded, size: 18, color: cs.onSurface.withValues(alpha: 0.15)),
           ]),
         ),
       ),
@@ -250,7 +250,7 @@ class _UserDetailScreenState extends State<_UserDetailScreen> {
                   tooltip: 'Edit user',
                   onPressed: _showEditor,
                 ),
-              IconButton(icon: const Icon(Icons.close_rounded, color: Colors.white38), onPressed: () => Navigator.pop(context)),
+              IconButton(icon: Icon(Icons.close_rounded, color: cs.onSurfaceVariant), onPressed: () => Navigator.pop(context)),
             ]),
           ),
           // Online / last seen
@@ -259,13 +259,13 @@ class _UserDetailScreenState extends State<_UserDetailScreen> {
             child: Row(children: [
               Container(width: 8, height: 8, decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: _isOnline ? const Color(0xFF4CAF50) : Colors.white24,
+                color: _isOnline ? const Color(0xFF4CAF50) : cs.onSurface.withValues(alpha: 0.24),
               )),
               const SizedBox(width: 8),
               Text(
                 _isOnline ? 'Online now' : 'Last seen $_lastSeenStr',
                 style: tt.labelSmall?.copyWith(
-                  color: _isOnline ? const Color(0xFF4CAF50).withValues(alpha: 0.8) : Colors.white.withValues(alpha: 0.3),
+                  color: _isOnline ? const Color(0xFF4CAF50).withValues(alpha: 0.8) : cs.onSurface.withValues(alpha: 0.3),
                   fontSize: 11,
                 ),
               ),
@@ -284,11 +284,11 @@ class _UserDetailScreenState extends State<_UserDetailScreen> {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
               child: Row(children: [
-                _summaryChip(tt, '$inProgress', 'In Progress', cs.primary),
+                _summaryChip(cs, tt, '$inProgress', 'In Progress', cs.primary),
                 const SizedBox(width: 10),
-                _summaryChip(tt, '$finished', 'Finished', Colors.green),
+                _summaryChip(cs, tt, '$finished', 'Finished', Colors.green),
                 const SizedBox(width: 10),
-                _summaryChip(tt, '${_progressItems.length}', 'Total', Colors.white38),
+                _summaryChip(cs, tt, '${_progressItems.length}', 'Total', cs.onSurfaceVariant),
               ]),
             ),
           Expanded(
@@ -299,9 +299,9 @@ class _UserDetailScreenState extends State<_UserDetailScreen> {
                     child: _progressItems.isEmpty
                         ? ListView(children: [
                             const SizedBox(height: 80),
-                            Center(child: Icon(Icons.menu_book_rounded, size: 48, color: Colors.white.withValues(alpha: 0.08))),
+                            Center(child: Icon(Icons.menu_book_rounded, size: 48, color: cs.onSurface.withValues(alpha: 0.08))),
                             const SizedBox(height: 12),
-                            Center(child: Text('No reading activity', style: tt.bodyMedium?.copyWith(color: Colors.white24))),
+                            Center(child: Text('No reading activity', style: tt.bodyMedium?.copyWith(color: cs.onSurface.withValues(alpha: 0.24)))),
                           ])
                         : ListView.builder(
                             padding: const EdgeInsets.only(bottom: 40),
@@ -315,15 +315,15 @@ class _UserDetailScreenState extends State<_UserDetailScreen> {
     );
   }
 
-  Widget _summaryChip(TextTheme tt, String value, String label, Color color) {
+  Widget _summaryChip(ColorScheme cs, TextTheme tt, String value, String label, Color color) {
     return Expanded(
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 10),
         decoration: BoxDecoration(color: color.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(12)),
         child: Column(children: [
-          Text(value, style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700, color: color == Colors.white38 ? Colors.white54 : color)),
+          Text(value, style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700, color: color)),
           const SizedBox(height: 2),
-          Text(label, style: tt.labelSmall?.copyWith(color: Colors.white.withValues(alpha: 0.3), fontSize: 10)),
+          Text(label, style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.3), fontSize: 10)),
         ]),
       ),
     );
@@ -381,11 +381,11 @@ class _UserDetailScreenState extends State<_UserDetailScreen> {
           ),
           const SizedBox(width: 12),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(displayTitle, style: tt.bodySmall?.copyWith(color: Colors.white, fontWeight: FontWeight.w600),
+            Text(displayTitle, style: tt.bodySmall?.copyWith(color: cs.onSurface, fontWeight: FontWeight.w600),
               maxLines: 1, overflow: TextOverflow.ellipsis),
             if (subtitle.isNotEmpty) ...[
               const SizedBox(height: 1),
-              Text(subtitle, style: tt.labelSmall?.copyWith(color: Colors.white.withValues(alpha: 0.3), fontSize: 10),
+              Text(subtitle, style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.3), fontSize: 10),
                 maxLines: 1, overflow: TextOverflow.ellipsis),
             ],
             const SizedBox(height: 6),
@@ -396,7 +396,7 @@ class _UserDetailScreenState extends State<_UserDetailScreen> {
                   child: LinearProgressIndicator(
                     value: progressVal.clamp(0.0, 1.0),
                     minHeight: 3,
-                    backgroundColor: Colors.white.withValues(alpha: 0.06),
+                    backgroundColor: cs.onSurface.withValues(alpha: 0.06),
                     valueColor: AlwaysStoppedAnimation(
                       isFinished ? Colors.green : cs.primary.withValues(alpha: 0.8)),
                   ),
@@ -405,16 +405,16 @@ class _UserDetailScreenState extends State<_UserDetailScreen> {
               const SizedBox(width: 10),
               Text(isFinished ? 'Finished' : '$percent%',
                 style: tt.labelSmall?.copyWith(
-                  color: isFinished ? Colors.green.withValues(alpha: 0.8) : Colors.white38,
+                  color: isFinished ? Colors.green.withValues(alpha: 0.8) : cs.onSurfaceVariant.withValues(alpha: 0.6),
                   fontWeight: FontWeight.w600, fontSize: 10)),
             ]),
             const SizedBox(height: 3),
             Row(children: [
               Text('${_fmtDur(currentTime.toDouble())} / ${_fmtDur(duration.toDouble())}',
-                style: tt.labelSmall?.copyWith(color: Colors.white.withValues(alpha: 0.2), fontSize: 9)),
+                style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.2), fontSize: 9)),
               if (lastUpdateStr.isNotEmpty) ...[
                 const Spacer(),
-                Text(lastUpdateStr, style: tt.labelSmall?.copyWith(color: Colors.white.withValues(alpha: 0.2), fontSize: 9)),
+                Text(lastUpdateStr, style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.2), fontSize: 9)),
               ],
             ]),
           ])),
@@ -502,10 +502,10 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
       decoration: BoxDecoration(color: Theme.of(context).bottomSheetTheme.backgroundColor, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Center(child: Container(margin: const EdgeInsets.only(top: 12), width: 36, height: 4,
-          decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(2)))),
+          decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(2)))),
         Padding(padding: const EdgeInsets.fromLTRB(20, 16, 12, 0),
           child: Row(children: [
-            Expanded(child: Text(_isNew ? 'New User' : 'Edit User', style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700, color: Colors.white))),
+            Expanded(child: Text(_isNew ? 'New User' : 'Edit User', style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700, color: cs.onSurface))),
             if (!_isNew) IconButton(
               icon: Icon(Icons.delete_outline_rounded, color: Colors.red.shade300, size: 20),
               onPressed: _deleting ? null : _deleteUser),
@@ -513,34 +513,34 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
         Flexible(child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            _lbl(tt, 'Username'), const SizedBox(height: 6),
-            TextField(controller: _usernameCtrl, enabled: _isNew, style: const TextStyle(color: Colors.white),
+            _lbl(cs, tt, 'Username'), const SizedBox(height: 6),
+            TextField(controller: _usernameCtrl, enabled: _isNew, style: TextStyle(color: cs.onSurface),
               decoration: _deco(cs, 'Enter username')),
             const SizedBox(height: 16),
-            _lbl(tt, _isNew ? 'Password' : 'New Password'), const SizedBox(height: 6),
-            TextField(controller: _passwordCtrl, obscureText: true, style: const TextStyle(color: Colors.white),
+            _lbl(cs, tt, _isNew ? 'Password' : 'New Password'), const SizedBox(height: 6),
+            TextField(controller: _passwordCtrl, obscureText: true, style: TextStyle(color: cs.onSurface),
               decoration: _deco(cs, _isNew ? 'Enter password' : 'Leave blank to keep current')),
             const SizedBox(height: 20),
-            _lbl(tt, 'Account Type'), const SizedBox(height: 8),
+            _lbl(cs, tt, 'Account Type'), const SizedBox(height: 8),
             Row(children: [
               _chip(cs, tt, 'guest', Icons.person_outline_rounded), const SizedBox(width: 8),
               _chip(cs, tt, 'user', Icons.person_rounded), const SizedBox(width: 8),
               _chip(cs, tt, 'admin', Icons.admin_panel_settings_rounded),
             ]),
             const SizedBox(height: 20),
-            _lbl(tt, 'Status'), const SizedBox(height: 4),
-            _sw('Account Active', _isActive, (v) => setState(() => _isActive = v), sub: 'Disabled accounts cannot log in'),
-            _sw('Locked', _isLocked, (v) => setState(() => _isLocked = v), sub: 'Prevents password changes'),
+            _lbl(cs, tt, 'Status'), const SizedBox(height: 4),
+            _sw(cs, 'Account Active', _isActive, (v) => setState(() => _isActive = v), sub: 'Disabled accounts cannot log in'),
+            _sw(cs, 'Locked', _isLocked, (v) => setState(() => _isLocked = v), sub: 'Prevents password changes'),
             const SizedBox(height: 12),
-            _lbl(tt, 'Permissions'), const SizedBox(height: 4),
-            _sw('Download', _canDownload, (v) => setState(() => _canDownload = v)),
-            _sw('Update', _canUpdate, (v) => setState(() => _canUpdate = v), sub: 'Edit metadata and library items'),
-            _sw('Delete', _canDelete, (v) => setState(() => _canDelete = v)),
-            _sw('Upload', _canUpload, (v) => setState(() => _canUpload = v)),
-            _sw('Explicit Content', _accessExplicit, (v) => setState(() => _accessExplicit = v)),
+            _lbl(cs, tt, 'Permissions'), const SizedBox(height: 4),
+            _sw(cs, 'Download', _canDownload, (v) => setState(() => _canDownload = v)),
+            _sw(cs, 'Update', _canUpdate, (v) => setState(() => _canUpdate = v), sub: 'Edit metadata and library items'),
+            _sw(cs, 'Delete', _canDelete, (v) => setState(() => _canDelete = v)),
+            _sw(cs, 'Upload', _canUpload, (v) => setState(() => _canUpload = v)),
+            _sw(cs, 'Explicit Content', _accessExplicit, (v) => setState(() => _accessExplicit = v)),
             const SizedBox(height: 12),
-            _lbl(tt, 'Library Access'), const SizedBox(height: 4),
-            _sw('Access All Libraries', _accessAllLibraries, (v) => setState(() => _accessAllLibraries = v)),
+            _lbl(cs, tt, 'Library Access'), const SizedBox(height: 4),
+            _sw(cs, 'Access All Libraries', _accessAllLibraries, (v) => setState(() => _accessAllLibraries = v)),
             if (!_accessAllLibraries) ...[
               const SizedBox(height: 8),
               ...widget.libraries.map((lib) {
@@ -552,13 +552,13 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     decoration: BoxDecoration(
-                      color: sel ? cs.primary.withValues(alpha: 0.1) : Colors.white.withValues(alpha: 0.03),
+                      color: sel ? cs.primary.withValues(alpha: 0.1) : cs.onSurface.withValues(alpha: 0.03),
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: sel ? cs.primary.withValues(alpha: 0.3) : Colors.white.withValues(alpha: 0.06))),
+                      border: Border.all(color: sel ? cs.primary.withValues(alpha: 0.3) : cs.onSurface.withValues(alpha: 0.06))),
                     child: Row(children: [
-                      Icon(sel ? Icons.check_circle_rounded : Icons.circle_outlined, size: 18, color: sel ? cs.primary : Colors.white24),
+                      Icon(sel ? Icons.check_circle_rounded : Icons.circle_outlined, size: 18, color: sel ? cs.primary : cs.onSurface.withValues(alpha: 0.24)),
                       const SizedBox(width: 10),
-                      Text(name, style: TextStyle(color: sel ? Colors.white : Colors.white54, fontWeight: sel ? FontWeight.w600 : FontWeight.w400)),
+                      Text(name, style: TextStyle(color: sel ? cs.onSurface : cs.onSurface.withValues(alpha: 0.54), fontWeight: sel ? FontWeight.w600 : FontWeight.w400)),
                     ]),
                   ),
                 ));
@@ -570,21 +570,21 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
             onPressed: _saving ? null : _save,
             style: FilledButton.styleFrom(backgroundColor: cs.primary, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
             child: _saving
-              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+              ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: cs.onPrimary))
               : Text(_isNew ? 'Create User' : 'Save Changes', style: TextStyle(fontWeight: FontWeight.w700, color: cs.onPrimary)),
           ))),
       ]));
   }
 
-  Widget _lbl(TextTheme tt, String t) => Text(t, style: tt.labelMedium?.copyWith(color: Colors.white54, fontWeight: FontWeight.w600));
+  Widget _lbl(ColorScheme cs, TextTheme tt, String t) => Text(t, style: tt.labelMedium?.copyWith(color: cs.onSurface.withValues(alpha: 0.54), fontWeight: FontWeight.w600));
 
   InputDecoration _deco(ColorScheme cs, String hint) => InputDecoration(
-    hintText: hint, hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.2)),
-    filled: true, fillColor: Colors.white.withValues(alpha: 0.04),
-    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08))),
-    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08))),
+    hintText: hint, hintStyle: TextStyle(color: cs.onSurface.withValues(alpha: 0.2)),
+    filled: true, fillColor: cs.onSurface.withValues(alpha: 0.04),
+    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: cs.onSurface.withValues(alpha: 0.08))),
+    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: cs.onSurface.withValues(alpha: 0.08))),
     focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: cs.primary.withValues(alpha: 0.5))),
-    disabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.04))),
+    disabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: cs.onSurface.withValues(alpha: 0.04))),
     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12));
 
   Widget _chip(ColorScheme cs, TextTheme tt, String type, IconData ic) {
@@ -592,19 +592,19 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
     return Expanded(child: GestureDetector(onTap: () => setState(() => _type = type),
       child: AnimatedContainer(duration: const Duration(milliseconds: 200), padding: const EdgeInsets.symmetric(vertical: 10),
         decoration: BoxDecoration(
-          color: on ? cs.primary.withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.03),
+          color: on ? cs.primary.withValues(alpha: 0.15) : cs.onSurface.withValues(alpha: 0.03),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: on ? cs.primary.withValues(alpha: 0.4) : Colors.white.withValues(alpha: 0.06))),
+          border: Border.all(color: on ? cs.primary.withValues(alpha: 0.4) : cs.onSurface.withValues(alpha: 0.06))),
         child: Column(children: [
-          Icon(ic, size: 20, color: on ? cs.primary : Colors.white.withValues(alpha: 0.3)), const SizedBox(height: 4),
+          Icon(ic, size: 20, color: on ? cs.primary : cs.onSurface.withValues(alpha: 0.3)), const SizedBox(height: 4),
           Text(type[0].toUpperCase() + type.substring(1),
-            style: tt.labelSmall?.copyWith(color: on ? cs.primary : Colors.white38, fontWeight: on ? FontWeight.w700 : FontWeight.w500, fontSize: 11)),
+            style: tt.labelSmall?.copyWith(color: on ? cs.primary : cs.onSurfaceVariant.withValues(alpha: 0.6), fontWeight: on ? FontWeight.w700 : FontWeight.w500, fontSize: 11)),
         ]))));
   }
 
-  Widget _sw(String l, bool v, ValueChanged<bool> cb, {String? sub}) => SwitchListTile(dense: true, contentPadding: EdgeInsets.zero,
-    title: Text(l, style: const TextStyle(color: Colors.white, fontSize: 14)),
-    subtitle: sub != null ? Text(sub, style: TextStyle(color: Colors.white.withValues(alpha: 0.3), fontSize: 11)) : null,
+  Widget _sw(ColorScheme cs, String l, bool v, ValueChanged<bool> cb, {String? sub}) => SwitchListTile(dense: true, contentPadding: EdgeInsets.zero,
+    title: Text(l, style: TextStyle(color: cs.onSurface, fontSize: 14)),
+    subtitle: sub != null ? Text(sub, style: TextStyle(color: cs.onSurface.withValues(alpha: 0.3), fontSize: 11)) : null,
     value: v, onChanged: cb);
 
   Future<void> _save() async {

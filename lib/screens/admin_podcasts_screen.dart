@@ -72,13 +72,13 @@ class _AdminPodcastsScreenState extends State<AdminPodcastsScreen> {
           child: Row(children: [
             const Expanded(child: AbsorbPageHeader(title: 'Podcasts', padding: EdgeInsets.zero)),
             _checkingEpisodes
-                ? const Padding(padding: EdgeInsets.all(12),
-                    child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white38)))
+                ? Padding(padding: const EdgeInsets.all(12),
+                    child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 1.5, color: cs.onSurfaceVariant.withValues(alpha: 0.6))))
                 : IconButton(
-                    icon: const Icon(Icons.refresh_rounded, color: Colors.white38, size: 22),
+                    icon: Icon(Icons.refresh_rounded, color: cs.onSurfaceVariant.withValues(alpha: 0.6), size: 22),
                     tooltip: 'Check for new episodes',
                     onPressed: _checkNewEpisodes),
-            IconButton(icon: const Icon(Icons.close_rounded, color: Colors.white38), onPressed: () => Navigator.pop(context)),
+            IconButton(icon: Icon(Icons.close_rounded, color: cs.onSurfaceVariant.withValues(alpha: 0.6)), onPressed: () => Navigator.pop(context)),
           ]),
         ),
         const SizedBox(height: 12),
@@ -96,11 +96,11 @@ class _AdminPodcastsScreenState extends State<AdminPodcastsScreen> {
   Widget _buildShowList(ColorScheme cs, TextTheme tt) {
     if (_shows.isEmpty) {
       return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Icon(Icons.podcasts_rounded, size: 48, color: Colors.white.withValues(alpha: 0.1)),
+        Icon(Icons.podcasts_rounded, size: 48, color: cs.onSurface.withValues(alpha: 0.1)),
         const SizedBox(height: 12),
-        Text('No podcasts yet', style: tt.bodyMedium?.copyWith(color: Colors.white.withValues(alpha: 0.3))),
+        Text('No podcasts yet', style: tt.bodyMedium?.copyWith(color: cs.onSurface.withValues(alpha: 0.3))),
         const SizedBox(height: 4),
-        Text('Tap + to search and add shows', style: tt.bodySmall?.copyWith(color: Colors.white.withValues(alpha: 0.2))),
+        Text('Tap + to search and add shows', style: tt.bodySmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.2))),
       ]));
     }
 
@@ -130,13 +130,13 @@ class _AdminPodcastsScreenState extends State<AdminPodcastsScreen> {
                 ClipRRect(borderRadius: BorderRadius.circular(10), child: _coverImg(cs, itemId)),
                 const SizedBox(width: 12),
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(title, style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600, color: Colors.white), maxLines: 2, overflow: TextOverflow.ellipsis),
+                  Text(title, style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600, color: cs.onSurface), maxLines: 2, overflow: TextOverflow.ellipsis),
                   if (author.isNotEmpty) ...[const SizedBox(height: 2),
-                    Text(author, style: tt.bodySmall?.copyWith(color: Colors.white38), maxLines: 1, overflow: TextOverflow.ellipsis)],
+                    Text(author, style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant.withValues(alpha: 0.6)), maxLines: 1, overflow: TextOverflow.ellipsis)],
                   const SizedBox(height: 4),
                   Text('$numEps episodes', style: tt.labelSmall?.copyWith(color: cs.primary.withValues(alpha: 0.7), fontSize: 11)),
                 ])),
-                Icon(Icons.chevron_right_rounded, color: Colors.white.withValues(alpha: 0.15)),
+                Icon(Icons.chevron_right_rounded, color: cs.onSurface.withValues(alpha: 0.15)),
               ]),
             ),
           ),
@@ -261,22 +261,22 @@ class _PodcastSearchSheetState extends State<_PodcastSearchSheet> {
                 child: Row(
                   children: [
                     Expanded(
-                      child: Text('Add Podcast', style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700, color: Colors.white)),
+                      child: Text('Add Podcast', style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700, color: cs.onSurface)),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.close_rounded, color: Colors.white38, size: 20),
+                      icon: Icon(Icons.close_rounded, color: cs.onSurfaceVariant.withValues(alpha: 0.6), size: 20),
                       onPressed: () => Navigator.pop(context),
                     ),
                   ],
                 ),
               ),
               _buildSearchBar(cs, tt),
-              const Divider(height: 1, color: Colors.white10),
+              Divider(height: 1, color: cs.onSurface.withValues(alpha: 0.1)),
               Expanded(
                 child: _searching
                     ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
                     : _results.isEmpty
-                        ? Center(child: Text('Search iTunes to find podcasts', style: tt.bodySmall?.copyWith(color: Colors.white24)))
+                        ? Center(child: Text('Search iTunes to find podcasts', style: tt.bodySmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.24))))
                         : _buildResultsList(cs, tt, sc),
               ),
             ],
@@ -292,20 +292,20 @@ class _PodcastSearchSheetState extends State<_PodcastSearchSheet> {
       child: TextField(
         controller: _ctrl,
         autofocus: true,
-        style: const TextStyle(color: Colors.white),
+        style: TextStyle(color: cs.onSurface),
         onSubmitted: (_) => _search(),
         decoration: InputDecoration(
           hintText: 'Search for podcasts…',
-          hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.25)),
-          prefixIcon: Icon(Icons.search_rounded, color: Colors.white.withValues(alpha: 0.3)),
+          hintStyle: TextStyle(color: cs.onSurface.withValues(alpha: 0.25)),
+          prefixIcon: Icon(Icons.search_rounded, color: cs.onSurface.withValues(alpha: 0.3)),
           suffixIcon: _searching
-              ? const Padding(
-                  padding: EdgeInsets.all(12),
-                  child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white38)),
+              ? Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 1.5, color: cs.onSurfaceVariant.withValues(alpha: 0.6))),
                 )
               : IconButton(icon: Icon(Icons.arrow_forward_rounded, color: cs.primary), onPressed: _search),
           filled: true,
-          fillColor: Colors.white.withValues(alpha: 0.05),
+          fillColor: cs.onSurface.withValues(alpha: 0.05),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         ),
@@ -331,7 +331,7 @@ class _PodcastSearchSheetState extends State<_PodcastSearchSheet> {
             child: Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.04),
+                color: cs.onSurface.withValues(alpha: 0.04),
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Row(
@@ -353,16 +353,16 @@ class _PodcastSearchSheetState extends State<_PodcastSearchSheet> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(title, style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600, color: Colors.white), maxLines: 2, overflow: TextOverflow.ellipsis),
+                        Text(title, style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600, color: cs.onSurface), maxLines: 2, overflow: TextOverflow.ellipsis),
                         if (author.isNotEmpty) ...[
                           const SizedBox(height: 2),
-                          Text(author, style: tt.bodySmall?.copyWith(color: Colors.white38), maxLines: 1, overflow: TextOverflow.ellipsis),
+                          Text(author, style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant.withValues(alpha: 0.6)), maxLines: 1, overflow: TextOverflow.ellipsis),
                         ],
                       ],
                     ),
                   ),
                   const SizedBox(width: 8),
-                  Icon(Icons.chevron_right_rounded, color: Colors.white.withValues(alpha: 0.15)),
+                  Icon(Icons.chevron_right_rounded, color: cs.onSurface.withValues(alpha: 0.15)),
                 ],
               ),
             ),
@@ -479,7 +479,7 @@ class _PodcastPreviewScreenState extends State<_PodcastPreviewScreen> {
               padding: const EdgeInsets.fromLTRB(4, 4, 8, 0),
               child: Row(
                 children: [
-                  IconButton(icon: const Icon(Icons.arrow_back_rounded, color: Colors.white54), onPressed: () => Navigator.pop(context)),
+                  IconButton(icon: Icon(Icons.arrow_back_rounded, color: cs.onSurface.withValues(alpha: 0.54)), onPressed: () => Navigator.pop(context)),
                   const Spacer(),
                 ],
               ),
@@ -502,12 +502,12 @@ class _PodcastPreviewScreenState extends State<_PodcastPreviewScreen> {
                   const SizedBox(height: 16),
                   Text(
                     _title,
-                    style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w700, color: Colors.white),
+                    style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w700, color: cs.onSurface),
                     textAlign: TextAlign.center,
                   ),
                   if (_author.isNotEmpty) ...[
                     const SizedBox(height: 4),
-                    Text(_author, style: tt.bodyMedium?.copyWith(color: Colors.white38), textAlign: TextAlign.center),
+                    Text(_author, style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant.withValues(alpha: 0.6)), textAlign: TextAlign.center),
                   ],
                   const SizedBox(height: 12),
 
@@ -537,12 +537,12 @@ class _PodcastPreviewScreenState extends State<_PodcastPreviewScreen> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.rss_feed_rounded, size: 14, color: Colors.white.withValues(alpha: 0.25)),
+                          Icon(Icons.rss_feed_rounded, size: 14, color: cs.onSurface.withValues(alpha: 0.25)),
                           const SizedBox(width: 6),
                           Flexible(
                             child: Text(
                               _feedUrl,
-                              style: tt.labelSmall?.copyWith(color: Colors.white.withValues(alpha: 0.25), fontSize: 10),
+                              style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.25), fontSize: 10),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -555,7 +555,7 @@ class _PodcastPreviewScreenState extends State<_PodcastPreviewScreen> {
                   if (_description.isNotEmpty) ...[
                     Text(
                       _description,
-                      style: tt.bodySmall?.copyWith(color: Colors.white.withValues(alpha: 0.5), height: 1.5),
+                      style: tt.bodySmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.5), height: 1.5),
                       maxLines: 6,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -571,7 +571,7 @@ class _PodcastPreviewScreenState extends State<_PodcastPreviewScreen> {
                   else if (_feedEpisodes.isNotEmpty) ...[
                     Text(
                       '${_feedEpisodes.length} episodes in feed',
-                      style: tt.labelMedium?.copyWith(color: Colors.white38, fontWeight: FontWeight.w600),
+                      style: tt.labelMedium?.copyWith(color: cs.onSurfaceVariant.withValues(alpha: 0.6), fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(height: 8),
                     // Show first 5 episodes as preview
@@ -588,7 +588,7 @@ class _PodcastPreviewScreenState extends State<_PodcastPreviewScreen> {
                           ),
                           child: Text(
                             epTitle,
-                            style: tt.bodySmall?.copyWith(color: Colors.white54),
+                            style: tt.bodySmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.54)),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -600,7 +600,7 @@ class _PodcastPreviewScreenState extends State<_PodcastPreviewScreen> {
                         padding: const EdgeInsets.only(top: 4),
                         child: Text(
                           '+ ${_feedEpisodes.length - 5} more episodes',
-                          style: tt.labelSmall?.copyWith(color: Colors.white24),
+                          style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.24)),
                           textAlign: TextAlign.center,
                         ),
                       ),
@@ -618,7 +618,7 @@ class _PodcastPreviewScreenState extends State<_PodcastPreviewScreen> {
                 child: FilledButton.icon(
                   onPressed: _adding ? null : _addPodcast,
                   icon: _adding
-                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: cs.onSurface))
                       : const Icon(Icons.add_rounded),
                   label: Text(_adding ? 'Adding…' : 'Add to Library', style: const TextStyle(fontWeight: FontWeight.w700)),
                   style: FilledButton.styleFrom(
@@ -783,7 +783,7 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
         // Back button
         Padding(padding: const EdgeInsets.fromLTRB(4, 4, 8, 0),
           child: Row(children: [
-            IconButton(icon: const Icon(Icons.arrow_back_rounded, color: Colors.white54), onPressed: () => Navigator.pop(context)),
+            IconButton(icon: Icon(Icons.arrow_back_rounded, color: cs.onSurface.withValues(alpha: 0.54)), onPressed: () => Navigator.pop(context)),
             const Spacer(),
           ])),
 
@@ -798,9 +798,9 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
                   child: Icon(Icons.podcasts_rounded, color: cs.primary.withValues(alpha: 0.4), size: 28)))),
             const SizedBox(width: 14),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(_title, style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700, color: Colors.white), maxLines: 2, overflow: TextOverflow.ellipsis),
+              Text(_title, style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700, color: cs.onSurface), maxLines: 2, overflow: TextOverflow.ellipsis),
               if (author.isNotEmpty) ...[const SizedBox(height: 2),
-                Text(author, style: tt.bodySmall?.copyWith(color: Colors.white38))],
+                Text(author, style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant.withValues(alpha: 0.6)))],
               const SizedBox(height: 6),
               Text('${_episodes.length} downloaded', style: tt.labelSmall?.copyWith(color: cs.primary.withValues(alpha: 0.7), fontSize: 11)),
             ])),
@@ -810,10 +810,10 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
         TabBar(
           controller: _tabCtrl,
           labelColor: cs.primary,
-          unselectedLabelColor: Colors.white.withValues(alpha: 0.3),
+          unselectedLabelColor: cs.onSurface.withValues(alpha: 0.3),
           indicatorColor: cs.primary,
           indicatorSize: TabBarIndicatorSize.label,
-          dividerColor: Colors.white.withValues(alpha: 0.06),
+          dividerColor: cs.onSurface.withValues(alpha: 0.06),
           tabs: const [Tab(text: 'Downloaded'), Tab(text: 'Feed')],
           onTap: (i) { if (i == 1 && _feedEpisodes.isEmpty && !_loadingFeed) _loadFeed(); },
         ),
@@ -839,9 +839,9 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
 
     if (_episodes.isEmpty && queueItems.isEmpty) {
       return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Icon(Icons.download_done_rounded, size: 40, color: Colors.white.withValues(alpha: 0.1)),
+        Icon(Icons.download_done_rounded, size: 40, color: cs.onSurface.withValues(alpha: 0.1)),
         const SizedBox(height: 8),
-        Text('No downloaded episodes', style: tt.bodyMedium?.copyWith(color: Colors.white.withValues(alpha: 0.3))),
+        Text('No downloaded episodes', style: tt.bodyMedium?.copyWith(color: cs.onSurface.withValues(alpha: 0.3))),
         const SizedBox(height: 8),
         GestureDetector(
           onTap: () { _tabCtrl.animateTo(1); if (_feedEpisodes.isEmpty && !_loadingFeed) _loadFeed(); },
@@ -878,7 +878,7 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
                   : Icon(Icons.hourglass_top_rounded, size: 16, color: cs.primary.withValues(alpha: 0.5))),
                 const SizedBox(width: 12),
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(title, style: tt.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: Colors.white),
+                  Text(title, style: tt.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: cs.onSurface),
                     maxLines: 2, overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 2),
                   Text(isActive ? 'Downloading...' : 'Queued',
@@ -904,16 +904,16 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
               decoration: BoxDecoration(color: cs.surfaceContainerHigh, borderRadius: BorderRadius.circular(12)),
               child: Row(children: [
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(epTitle, style: tt.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: Colors.white), maxLines: 2, overflow: TextOverflow.ellipsis),
+                  Text(epTitle, style: tt.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: cs.onSurface), maxLines: 2, overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 3),
                   Row(children: [
-                    if (pubAt != null) Text(_fmtDate(pubAt.toInt()), style: tt.labelSmall?.copyWith(color: Colors.white24, fontSize: 10)),
-                    if (pubAt != null && durStr.isNotEmpty) Text(' · ', style: tt.labelSmall?.copyWith(color: Colors.white.withValues(alpha: 0.15))),
-                    if (durStr.isNotEmpty) Text(durStr, style: tt.labelSmall?.copyWith(color: Colors.white24, fontSize: 10)),
+                    if (pubAt != null) Text(_fmtDate(pubAt.toInt()), style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.24), fontSize: 10)),
+                    if (pubAt != null && durStr.isNotEmpty) Text(' · ', style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.15))),
+                    if (durStr.isNotEmpty) Text(durStr, style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.24), fontSize: 10)),
                   ]),
                 ])),
                 const SizedBox(width: 8),
-                Icon(Icons.chevron_right_rounded, size: 18, color: Colors.white.withValues(alpha: 0.15)),
+                Icon(Icons.chevron_right_rounded, size: 18, color: cs.onSurface.withValues(alpha: 0.15)),
               ]),
             ),
           ));
@@ -926,10 +926,10 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
 
   Widget _buildFeedTab(ColorScheme cs, TextTheme tt) {
     if (_loadingFeed) return const Center(child: CircularProgressIndicator(strokeWidth: 2));
-    if (_feedUrl.isEmpty) return Center(child: Text('No feed URL available', style: tt.bodyMedium?.copyWith(color: Colors.white.withValues(alpha: 0.3))));
+    if (_feedUrl.isEmpty) return Center(child: Text('No feed URL available', style: tt.bodyMedium?.copyWith(color: cs.onSurface.withValues(alpha: 0.3))));
     if (_feedEpisodes.isEmpty) {
       return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Text('No episodes found', style: tt.bodyMedium?.copyWith(color: Colors.white.withValues(alpha: 0.3))),
+        Text('No episodes found', style: tt.bodyMedium?.copyWith(color: cs.onSurface.withValues(alpha: 0.3))),
         const SizedBox(height: 8),
         GestureDetector(onTap: _loadFeed,
           child: Text('Retry', style: tt.bodySmall?.copyWith(color: cs.primary))),
@@ -957,13 +957,13 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
               child: Row(children: [
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text(epTitle, style: tt.bodySmall?.copyWith(fontWeight: FontWeight.w600,
-                    color: already ? Colors.white38 : Colors.white), maxLines: 2, overflow: TextOverflow.ellipsis),
+                    color: already ? cs.onSurfaceVariant.withValues(alpha: 0.6) : cs.onSurface), maxLines: 2, overflow: TextOverflow.ellipsis),
                   if (pubDate != null) ...[const SizedBox(height: 3),
-                    Text(_fmtDate(pubDate.toInt()), style: tt.labelSmall?.copyWith(color: Colors.white24, fontSize: 10))],
+                    Text(_fmtDate(pubDate.toInt()), style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.24), fontSize: 10))],
                 ])),
                 const SizedBox(width: 8),
                 if (already) Icon(Icons.check_circle_rounded, size: 18, color: Colors.green.withValues(alpha: 0.5))
-                else Icon(Icons.chevron_right_rounded, size: 18, color: Colors.white.withValues(alpha: 0.15)),
+                else Icon(Icons.chevron_right_rounded, size: 18, color: cs.onSurface.withValues(alpha: 0.15)),
               ]),
             ),
           ));
@@ -1080,12 +1080,12 @@ class _EpisodeDetailSheet extends StatelessWidget {
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         // Handle
         Center(child: Container(margin: const EdgeInsets.only(top: 12), width: 36, height: 4,
-          decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(2)))),
+          decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(2)))),
 
         // Title
         Padding(padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
           child: Align(alignment: Alignment.centerLeft,
-            child: Text(title, style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w700, color: Colors.white),
+            child: Text(title, style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w700, color: cs.onSurface),
               maxLines: 3, overflow: TextOverflow.ellipsis))),
 
         // Info chips
@@ -1094,15 +1094,15 @@ class _EpisodeDetailSheet extends StatelessWidget {
             child: Align(alignment: Alignment.centerLeft,
               child: Wrap(spacing: 8, runSpacing: 6, children: chips.map((c) => Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.06), borderRadius: BorderRadius.circular(6)),
-                child: Text(c, style: tt.labelSmall?.copyWith(color: Colors.white54, fontSize: 11)),
+                decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.06), borderRadius: BorderRadius.circular(6)),
+                child: Text(c, style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.54), fontSize: 11)),
               )).toList()))),
 
         // File type
         if (fileType.isNotEmpty)
           Padding(padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
             child: Align(alignment: Alignment.centerLeft,
-              child: Text(fileType, style: tt.labelSmall?.copyWith(color: Colors.white24, fontSize: 10)))),
+              child: Text(fileType, style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.24), fontSize: 10)))),
 
         // Description
         if (description.isNotEmpty)
@@ -1110,7 +1110,7 @@ class _EpisodeDetailSheet extends StatelessWidget {
             child: Padding(padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
               child: SingleChildScrollView(
                 child: SizedBox(width: double.infinity,
-                  child: Text(description, style: tt.bodySmall?.copyWith(color: Colors.white54, height: 1.5))),
+                  child: Text(description, style: tt.bodySmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.54), height: 1.5))),
               )),
           ),
 
@@ -1121,11 +1121,11 @@ class _EpisodeDetailSheet extends StatelessWidget {
               child: OutlinedButton(
                 onPressed: () => Navigator.pop(context),
                 style: OutlinedButton.styleFrom(
-                  side: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                  side: BorderSide(color: cs.onSurface.withValues(alpha: 0.1)),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
-                child: const Text('Back', style: TextStyle(color: Colors.white54, fontWeight: FontWeight.w600)),
+                child: Text('Back', style: TextStyle(color: cs.onSurface.withValues(alpha: 0.54), fontWeight: FontWeight.w600)),
               ),
             ),
             const SizedBox(width: 12),
@@ -1138,8 +1138,8 @@ class _EpisodeDetailSheet extends StatelessWidget {
                 style: FilledButton.styleFrom(
                   backgroundColor: alreadyDownloaded ? Colors.green.withValues(alpha: 0.15) : cs.primary,
                   foregroundColor: alreadyDownloaded ? Colors.green : cs.onPrimary,
-                  disabledBackgroundColor: alreadyDownloaded ? Colors.green.withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.06),
-                  disabledForegroundColor: alreadyDownloaded ? Colors.green : Colors.white38,
+                  disabledBackgroundColor: alreadyDownloaded ? Colors.green.withValues(alpha: 0.15) : cs.onSurface.withValues(alpha: 0.06),
+                  disabledForegroundColor: alreadyDownloaded ? Colors.green : cs.onSurfaceVariant.withValues(alpha: 0.6),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
@@ -1233,11 +1233,11 @@ class _DownloadedEpisodeDetailSheet extends StatelessWidget {
       decoration: BoxDecoration(color: Theme.of(context).bottomSheetTheme.backgroundColor, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Center(child: Container(margin: const EdgeInsets.only(top: 12), width: 36, height: 4,
-          decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(2)))),
+          decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(2)))),
 
         Padding(padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
           child: Align(alignment: Alignment.centerLeft,
-            child: Text(title, style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w700, color: Colors.white),
+            child: Text(title, style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w700, color: cs.onSurface),
               maxLines: 3, overflow: TextOverflow.ellipsis))),
 
         if (chips.isNotEmpty)
@@ -1245,8 +1245,8 @@ class _DownloadedEpisodeDetailSheet extends StatelessWidget {
             child: Align(alignment: Alignment.centerLeft,
               child: Wrap(spacing: 8, runSpacing: 6, children: chips.map((c) => Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.06), borderRadius: BorderRadius.circular(6)),
-                child: Text(c, style: tt.labelSmall?.copyWith(color: Colors.white54, fontSize: 11)),
+                decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.06), borderRadius: BorderRadius.circular(6)),
+                child: Text(c, style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.54), fontSize: 11)),
               )).toList()))),
 
         if (description.isNotEmpty)
@@ -1254,7 +1254,7 @@ class _DownloadedEpisodeDetailSheet extends StatelessWidget {
             child: Padding(padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
               child: SingleChildScrollView(
                 child: SizedBox(width: double.infinity,
-                  child: Text(description, style: tt.bodySmall?.copyWith(color: Colors.white54, height: 1.5))),
+                  child: Text(description, style: tt.bodySmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.54), height: 1.5))),
               )),
           ),
 
@@ -1264,11 +1264,11 @@ class _DownloadedEpisodeDetailSheet extends StatelessWidget {
               child: OutlinedButton(
                 onPressed: () => Navigator.pop(context),
                 style: OutlinedButton.styleFrom(
-                  side: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                  side: BorderSide(color: cs.onSurface.withValues(alpha: 0.1)),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
-                child: const Text('Back', style: TextStyle(color: Colors.white54, fontWeight: FontWeight.w600)),
+                child: Text('Back', style: TextStyle(color: cs.onSurface.withValues(alpha: 0.54), fontWeight: FontWeight.w600)),
               ),
             ),
             const SizedBox(width: 12),
@@ -1276,7 +1276,7 @@ class _DownloadedEpisodeDetailSheet extends StatelessWidget {
               child: FilledButton.icon(
                 onPressed: isDeleting ? null : onDelete,
                 icon: isDeleting
-                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white54))
+                  ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 1.5, color: cs.onSurface.withValues(alpha: 0.54)))
                   : const Icon(Icons.delete_outline_rounded, size: 18),
                 label: Text(isDeleting ? 'Deleting...' : 'Delete Episode',
                   style: const TextStyle(fontWeight: FontWeight.w700)),
