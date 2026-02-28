@@ -999,7 +999,14 @@ class _ExpandedCardState extends State<ExpandedCard> {
                 ),
               ]),
             ),
-            const SizedBox(height: 8),
+            if (_isActive)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                child: Text('Tap an event to jump to that position',
+                  style: tt.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.6), fontStyle: FontStyle.italic)),
+              )
+            else
+              const SizedBox(height: 8),
             Expanded(child: FutureBuilder<List<PlaybackEvent>>(
               future: PlaybackHistoryService().getHistory(_itemId),
               builder: (ctx, snap) {

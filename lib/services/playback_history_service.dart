@@ -51,22 +51,29 @@ class PlaybackEvent {
   String get label {
     switch (type) {
       case PlaybackEventType.play:
+        if (detail != null && detail!.isNotEmpty) return detail!;
         return 'Resumed playback';
       case PlaybackEventType.pause:
+        if (detail != null && detail!.isNotEmpty) return detail!;
         return 'Paused';
       case PlaybackEventType.seek:
+        if (detail != null && detail!.isNotEmpty) return 'Seeked $detail';
         return 'Seeked';
       case PlaybackEventType.syncLocal:
         return 'Saved locally';
       case PlaybackEventType.syncServer:
         return 'Synced to server';
       case PlaybackEventType.autoRewind:
+        if (detail != null && detail!.isNotEmpty) return 'Auto-rewound $detail';
         return 'Auto-rewound';
       case PlaybackEventType.skipForward:
+        if (detail != null && detail!.isNotEmpty) return 'Skipped forward (${detail!})';
         return 'Skipped forward';
       case PlaybackEventType.skipBackward:
+        if (detail != null && detail!.isNotEmpty) return 'Skipped back (${detail!})';
         return 'Skipped back';
       case PlaybackEventType.speedChange:
+        if (detail != null && detail!.isNotEmpty) return 'Speed set to ${detail!}';
         return 'Speed changed';
     }
   }

@@ -247,9 +247,13 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   }
 
   @override
-  Future<void> seek(Duration position) {
+  Future<void> seek(Duration position) async {
     debugPrint('[Handler] seek(${position.inSeconds}s)');
-    return _player.seek(position);
+    if (_service != null) {
+      await _service!.seekTo(position);
+    } else {
+      await _player.seek(position);
+    }
   }
 
   @override
@@ -548,12 +552,12 @@ class AudioPlayerService extends ChangeNotifier {
   final _history = PlaybackHistoryService();
 
   /// Log a playback event to history.
-  void _logEvent(PlaybackEventType type, {String? detail}) {
+  void _logEvent(PlaybackEventType type, {String? detail, double? overridePosition}) {
     if (_currentItemId == null) return;
     _history.log(
       itemId: _currentItemId!,
       type: type,
-      positionSeconds: position.inMilliseconds / 1000.0,
+      positionSeconds: overridePosition ?? position.inMilliseconds / 1000.0,
       detail: detail,
     );
   }
@@ -1512,9 +1516,11 @@ class AudioPlayerService extends ChangeNotifier {
   }
 
   Future<void> seekTo(Duration pos) async {
+    final from = position;
     await _seekAbsolute(pos.inMilliseconds / 1000.0);
     _logEvent(PlaybackEventType.seek,
-        detail: 'to ${_formatPos(pos)}');
+        detail: '${_formatPos(from)} → ${_formatPos(pos)}',
+        overridePosition: from.inMilliseconds / 1000.0);
     notifyListeners();
   }
 

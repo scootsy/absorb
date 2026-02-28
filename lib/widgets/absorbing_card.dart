@@ -878,33 +878,52 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                 ),
               ]),
             ),
-            const SizedBox(height: 8),
+            if (_isActive)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                child: Text('Tap an event to jump to that position',
+                  style: tt.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.6), fontStyle: FontStyle.italic)),
+              )
+            else
+              const SizedBox(height: 8),
             Expanded(child: FutureBuilder<List<PlaybackEvent>>(
               future: PlaybackHistoryService().getHistory(_itemId),
               builder: (ctx, snap) {
                 if (!snap.hasData) return const Center(child: CircularProgressIndicator(strokeWidth: 2));
                 final events = snap.data!;
                 if (events.isEmpty) return Center(child: Text('No history yet', style: tt.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)));
-                return ListView.builder(
-                  controller: sc, itemCount: events.length,
-                  itemBuilder: (_, i) {
-                    final e = events[i]; // already newest-first from getHistory
-                    final posLabel = _fmtTime(e.positionSeconds);
-                    final timeAgo = _timeAgo(e.timestamp);
-                    return ListTile(
-                      dense: true,
-                      leading: Icon(_historyIcon(e.type), size: 18, color: accent.withValues(alpha: 0.7)),
-                      title: Text(e.label, style: tt.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7))),
-                      subtitle: Text('at $posLabel', style: tt.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
-                      trailing: Text(timeAgo, style: tt.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3))),
-                      onTap: _isActive ? () {
-                        widget.player.seekTo(Duration(seconds: e.positionSeconds.round()));
-                        Navigator.pop(ctx);
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(duration: const Duration(seconds: 3), content: Text('Jumped to $posLabel')));
-                      } : null,
-                    );
-                  },
-                );
+
+                // Build list items with session date headers
+                final items = <Widget>[];
+                String? lastDateLabel;
+                for (int i = 0; i < events.length; i++) {
+                  final e = events[i];
+                  final dateLabel = _dateLabel(e.timestamp);
+                  if (dateLabel != lastDateLabel) {
+                    lastDateLabel = dateLabel;
+                    items.add(Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                      child: Text(dateLabel, style: tt.labelSmall?.copyWith(
+                        color: accent.withValues(alpha: 0.6), fontWeight: FontWeight.w600, letterSpacing: 0.5)),
+                    ));
+                  }
+                  final posLabel = _fmtTime(e.positionSeconds);
+                  final timeStr = _timeOfDay(e.timestamp);
+                  items.add(ListTile(
+                    dense: true, visualDensity: const VisualDensity(vertical: -2),
+                    leading: Icon(_historyIcon(e.type), size: 18, color: accent.withValues(alpha: 0.7)),
+                    title: Text(e.label, style: tt.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7))),
+                    subtitle: Text('at $posLabel', style: tt.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                    trailing: Text(timeStr, style: tt.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3))),
+                    onTap: _isActive ? () {
+                      widget.player.seekTo(Duration(seconds: e.positionSeconds.round()));
+                      Navigator.pop(ctx);
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(duration: const Duration(seconds: 3), content: Text('Jumped to $posLabel')));
+                    } : null,
+                  ));
+                }
+
+                return ListView(controller: sc, children: items);
               },
             )),
           ]),
@@ -1051,12 +1070,24 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
     }
   }
 
-  String _timeAgo(DateTime dt) {
-    final diff = DateTime.now().difference(dt);
-    if (diff.inSeconds < 60) return 'just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    return '${diff.inDays}d ago';
+  String _dateLabel(DateTime dt) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final date = DateTime(dt.year, dt.month, dt.day);
+    if (date == today) return 'Today';
+    if (date == today.subtract(const Duration(days: 1))) return 'Yesterday';
+    if (now.difference(dt).inDays < 7) {
+      const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+      return days[dt.weekday - 1];
+    }
+    return '${dt.month}/${dt.day}/${dt.year}';
+  }
+
+  String _timeOfDay(DateTime dt) {
+    final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final m = dt.minute.toString().padLeft(2, '0');
+    final ampm = dt.hour < 12 ? 'AM' : 'PM';
+    return '$h:$m $ampm';
   }
 
   String _fmtDur(double s) {
