@@ -69,6 +69,7 @@ class BookResultTile extends StatelessWidget {
                         imageUrl: coverUrl,
                         fit: BoxFit.cover,
                         httpHeaders: context.read<LibraryProvider>().mediaHeaders,
+                        fadeInDuration: const Duration(milliseconds: 300),
                         placeholder: (_, __) => _ph(cs),
                         errorWidget: (_, __, ___) => _ph(cs),
                       )
@@ -264,6 +265,7 @@ class AuthorResultTile extends StatelessWidget {
                           imageUrl: imageUrl,
                           fit: BoxFit.cover,
                           httpHeaders: context.read<LibraryProvider>().mediaHeaders,
+                          fadeInDuration: const Duration(milliseconds: 300),
                           placeholder: (_, __) => _ph(cs),
                           errorWidget: (_, __, ___) => _ph(cs),
                         )

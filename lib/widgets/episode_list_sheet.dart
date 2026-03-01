@@ -204,9 +204,10 @@ class _EpisodeListSheetState extends State<EpisodeListSheet> {
     if (mounted) setState(() => _isDownloadingAll = false);
   }
 
-  String? get _coverUrl {
+  /// Low-res cover for the blurred background (much cheaper to filter).
+  String? get _blurCoverUrl {
     final auth = context.read<AuthProvider>();
-    return auth.apiService?.getCoverUrl(_itemId, width: 800);
+    return auth.apiService?.getCoverUrl(_itemId, width: 200);
   }
 
   @override
@@ -214,7 +215,7 @@ class _EpisodeListSheetState extends State<EpisodeListSheet> {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
     final lib = context.watch<LibraryProvider>();
-    final coverUrl = _coverUrl;
+    final blurCoverUrl = _blurCoverUrl;
 
     return Container(
       clipBehavior: Clip.antiAlias,
@@ -224,14 +225,14 @@ class _EpisodeListSheetState extends State<EpisodeListSheet> {
       ),
       child: Stack(children: [
         // Blurred cover background
-        if (coverUrl != null)
+        if (blurCoverUrl != null)
           Positioned.fill(
             child: RepaintBoundary(
               child: CachedNetworkImage(
-                imageUrl: coverUrl, fit: BoxFit.cover,
+                imageUrl: blurCoverUrl, fit: BoxFit.cover,
                 httpHeaders: lib.mediaHeaders,
                 imageBuilder: (_, p) => ImageFiltered(
-                  imageFilter: ImageFilter.blur(sigmaX: 50, sigmaY: 50, tileMode: TileMode.decal),
+                  imageFilter: ImageFilter.blur(sigmaX: 30, sigmaY: 30, tileMode: TileMode.decal),
                   child: Image(image: p, fit: BoxFit.cover)),
                 placeholder: (_, __) => const SizedBox(),
                 errorWidget: (_, __, ___) => const SizedBox(),
@@ -609,9 +610,10 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
     }
   }
 
-  String? get _coverUrl {
+  /// Low-res cover for the blurred background (much cheaper to filter).
+  String? get _blurCoverUrl {
     final auth = context.read<AuthProvider>();
-    return auth.apiService?.getCoverUrl(_itemId, width: 800);
+    return auth.apiService?.getCoverUrl(_itemId, width: 200);
   }
 
   @override
@@ -619,7 +621,7 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
     final lib = context.watch<LibraryProvider>();
-    final coverUrl = _coverUrl;
+    final blurCoverUrl = _blurCoverUrl;
 
     final dlKey = '$_itemId-$_episodeId';
 
@@ -653,14 +655,14 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
       ),
       child: Stack(children: [
         // Blurred cover background
-        if (coverUrl != null)
+        if (blurCoverUrl != null)
           Positioned.fill(
             child: RepaintBoundary(
               child: CachedNetworkImage(
-                imageUrl: coverUrl, fit: BoxFit.cover,
+                imageUrl: blurCoverUrl, fit: BoxFit.cover,
                 httpHeaders: lib.mediaHeaders,
                 imageBuilder: (_, p) => ImageFiltered(
-                  imageFilter: ImageFilter.blur(sigmaX: 50, sigmaY: 50, tileMode: TileMode.decal),
+                  imageFilter: ImageFilter.blur(sigmaX: 30, sigmaY: 30, tileMode: TileMode.decal),
                   child: Image(image: p, fit: BoxFit.cover)),
                 placeholder: (_, __) => const SizedBox(),
                 errorWidget: (_, __, ___) => const SizedBox(),

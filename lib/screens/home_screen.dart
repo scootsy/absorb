@@ -23,6 +23,13 @@ class _HomeScreenState extends State<HomeScreen> {
   final _player = AudioPlayerService();
   bool _hideEbookOnly = false;
 
+  // Cached filtered sections — invalidated when source data or settings change.
+  List<dynamic>? _cachedSections;
+  List<dynamic>? _cachedClItems;
+  int _lastSectionsLength = -1;
+  bool _lastHideEbook = false;
+  bool _lastIsPodcast = false;
+
   @override
   void initState() {
     super.initState();
@@ -57,6 +64,39 @@ class _HomeScreenState extends State<HomeScreen> {
           : e;
       return !PlayerSettings.isEbookOnly(item);
     }).toList();
+  }
+
+  /// Recompute cached filtered sections only when input data changes.
+  void _refreshFilteredCache(LibraryProvider lib) {
+    final sections = lib.personalizedSections;
+    final isPod = lib.isPodcastLibrary;
+    if (sections.length == _lastSectionsLength &&
+        _hideEbookOnly == _lastHideEbook &&
+        isPod == _lastIsPodcast &&
+        _cachedSections != null) {
+      return; // cache is still valid
+    }
+    _lastSectionsLength = sections.length;
+    _lastHideEbook = _hideEbookOnly;
+    _lastIsPodcast = isPod;
+
+    // Continue-listening items
+    List<dynamic> clItems = [];
+    for (final section in sections) {
+      if (section['id'] == 'continue-listening') {
+        clItems = _filterEbookOnly((section['entities'] as List<dynamic>?) ?? []);
+        break;
+      }
+    }
+    if (isPod && clItems.isNotEmpty) {
+      final seen = <String>{};
+      clItems = clItems.where((item) {
+        final id = (item as Map<String, dynamic>)['id'] as String? ?? '';
+        return seen.add(id);
+      }).toList();
+    }
+    _cachedClItems = clItems;
+    _cachedSections = _sortSections(sections);
   }
 
   @override
@@ -186,6 +226,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final lib = context.watch<LibraryProvider>();
     final allLibraries = lib.libraries;
     final libraryName = lib.selectedLibrary?['name'] as String? ?? 'Library';
+    if (!lib.isLoading) _refreshFilteredCache(lib);
 
     return Scaffold(
       body: Container(
@@ -214,16 +255,20 @@ class _HomeScreenState extends State<HomeScreen> {
                   title: 'Home',
                   actions: [
                     if (!lib.isOffline && allLibraries.length > 1)
-                      GestureDetector(
-                        onTap: () => _showLibraryPicker(context, cs, tt, allLibraries, lib),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                          decoration: BoxDecoration(
-                            color: cs.onSurface.withValues(alpha: 0.06),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: cs.onSurface.withValues(alpha: 0.08)),
-                          ),
-                          child: Row(
+                      Material(
+                        color: cs.onSurface.withValues(alpha: 0.06),
+                        borderRadius: BorderRadius.circular(20),
+                        clipBehavior: Clip.antiAlias,
+                        child: InkWell(
+                          onTap: () => _showLibraryPicker(context, cs, tt, allLibraries, lib),
+                          borderRadius: BorderRadius.circular(20),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: cs.onSurface.withValues(alpha: 0.08)),
+                            ),
+                            child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Icon(lib.isPodcastLibrary ? Icons.podcasts_rounded : Icons.auto_stories_rounded, size: 14, color: cs.onSurfaceVariant),
@@ -239,6 +284,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ),
                       ),
+                      ),
                   ],
                 ),
               ),
@@ -246,26 +292,7 @@ class _HomeScreenState extends State<HomeScreen> {
               // ── Currently Absorbing section ──
               if (!lib.isLoading)
                 ...() {
-                  // Find continue-listening entities
-                  List<dynamic> clItems = [];
-                  for (final section in lib.personalizedSections) {
-                    if (section['id'] == 'continue-listening') {
-                      clItems = _filterEbookOnly((section['entities'] as List<dynamic>?) ?? []);
-                      break;
-                    }
-                  }
-
-                  // For podcast libraries, deduplicate by show ID — ABS returns
-                  // one entity per in-progress episode, all with the same show id.
-                  // Keep the first occurrence (most recently updated) per show.
-                  if (lib.isPodcastLibrary && clItems.isNotEmpty) {
-                    final seen = <String>{};
-                    clItems = clItems.where((item) {
-                      final id = (item as Map<String, dynamic>)['id'] as String? ?? '';
-                      return seen.add(id);
-                    }).toList();
-                  }
-
+                  final clItems = _cachedClItems ?? [];
                   if (clItems.isEmpty) return <Widget>[];
                   return <Widget>[
                     SliverToBoxAdapter(
@@ -387,7 +414,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
               // ── Other sections ──
               if (!lib.isLoading)
-                ..._sortSections(lib.personalizedSections).map((section) {
+                ...(_cachedSections ?? []).map((section) {
                   final id = section['id'] ?? '';
                   if (id == 'continue-listening' ||
                       _hiddenSections.contains(id)) {
@@ -491,31 +518,35 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
             : (media['duration'] as num?)?.toDouble() ?? 0);
     final isCurrentItem = player.currentItemId == itemId;
 
-    return GestureDetector(
-      onTap: () {
-        if (lib.isPodcastLibrary) {
-          if (recentEpisode != null) {
-            EpisodeDetailSheet.show(context, item, recentEpisode);
+    return Material(
+      color: isCurrentItem
+          ? cs.primary.withValues(alpha: 0.08)
+          : cs.surfaceContainerHigh,
+      borderRadius: BorderRadius.circular(14),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () {
+          if (lib.isPodcastLibrary) {
+            if (recentEpisode != null) {
+              EpisodeDetailSheet.show(context, item, recentEpisode);
+            } else {
+              EpisodeListSheet.show(context, item);
+            }
           } else {
-            EpisodeListSheet.show(context, item);
+            showBookDetailSheet(context, itemId);
           }
-        } else {
-          showBookDetailSheet(context, itemId);
-        }
-      },
-      child: Container(
-        width: 280,
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: isCurrentItem
-              ? cs.primary.withValues(alpha: 0.08)
-              : cs.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(14),
-          border: isCurrentItem
-              ? Border.all(color: cs.primary.withValues(alpha: 0.2))
-              : null,
-        ),
-        child: Row(
+        },
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          width: 280,
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: isCurrentItem
+                ? Border.all(color: cs.primary.withValues(alpha: 0.2))
+                : null,
+          ),
+          child: Row(
           children: [
             // Cover
             ClipRRect(
@@ -530,6 +561,10 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
                               child: Icon(Icons.headphones_rounded, size: 18, color: cs.onSurfaceVariant)))
                         : CachedNetworkImage(imageUrl: coverUrl, fit: BoxFit.cover,
                             httpHeaders: lib.mediaHeaders,
+                            fadeInDuration: const Duration(milliseconds: 300),
+                            placeholder: (_, __) => Container(
+                              color: cs.surfaceContainerHighest,
+                              child: Icon(Icons.headphones_rounded, size: 18, color: cs.onSurfaceVariant)),
                             errorWidget: (_, __, ___) => Container(
                               color: cs.surfaceContainerHighest,
                               child: Icon(Icons.headphones_rounded, size: 18, color: cs.onSurfaceVariant)))
@@ -584,9 +619,9 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
                 ],
               ),
             ),
-            const SizedBox(width: 8),
-            // Play button
+            // Play button (48x48 hit area, 34x34 visual)
             GestureDetector(
+              behavior: HitTestBehavior.opaque,
               onTap: _isLoading ? null : () {
                 if (isCurrentItem) {
                   player.togglePlayPause();
@@ -594,31 +629,37 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
                   _startBook(context, itemId);
                 }
               },
-              child: Container(
-                width: 34, height: 34,
-                decoration: BoxDecoration(
-                  color: cs.primary.withValues(alpha: isCurrentItem ? 1.0 : 0.15),
-                  shape: BoxShape.circle,
+              child: SizedBox(
+                width: 48, height: 48,
+                child: Center(
+                  child: Container(
+                    width: 34, height: 34,
+                    decoration: BoxDecoration(
+                      color: cs.primary.withValues(alpha: isCurrentItem ? 1.0 : 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: _isLoading
+                        ? Padding(
+                            padding: const EdgeInsets.all(9),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: isCurrentItem ? cs.onPrimary : cs.primary,
+                            ),
+                          )
+                        : Icon(
+                            isCurrentItem && player.isPlaying
+                                ? Icons.pause_rounded
+                                : Icons.play_arrow_rounded,
+                            size: 18,
+                            color: isCurrentItem ? cs.onPrimary : cs.primary,
+                          ),
+                  ),
                 ),
-                child: _isLoading
-                    ? Padding(
-                        padding: const EdgeInsets.all(9),
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: isCurrentItem ? cs.onPrimary : cs.primary,
-                        ),
-                      )
-                    : Icon(
-                        isCurrentItem && player.isPlaying
-                            ? Icons.pause_rounded
-                            : Icons.play_arrow_rounded,
-                        size: 18,
-                        color: isCurrentItem ? cs.onPrimary : cs.primary,
-                      ),
               ),
             ),
           ],
         ),
+      ),
       ),
     );
   }

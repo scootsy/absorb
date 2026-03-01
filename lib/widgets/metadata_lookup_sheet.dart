@@ -406,6 +406,7 @@ class _MetadataLookupSheetState extends State<MetadataLookupSheet> {
                       ? CachedNetworkImage(
                           imageUrl: cover,
                           fit: BoxFit.cover,
+                          fadeInDuration: const Duration(milliseconds: 300),
                           placeholder: (_, __) => _placeholder(cs),
                           errorWidget: (_, __, ___) => _placeholder(cs),
                         )

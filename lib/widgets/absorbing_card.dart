@@ -479,6 +479,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                                             errorBuilder: (_, __, ___) => _coverPlaceholder())
                                         : CachedNetworkImage(imageUrl: _coverUrl!, fit: BoxFit.cover,
                                               httpHeaders: mediaHeaders,
+                                              fadeInDuration: const Duration(milliseconds: 300),
                                               placeholder: (_, __) => _coverPlaceholder(),
                                               errorWidget: (_, __, ___) => _coverPlaceholder())
                                     : _coverPlaceholder(),

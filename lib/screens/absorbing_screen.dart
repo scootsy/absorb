@@ -387,13 +387,16 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
               padding: const EdgeInsets.fromLTRB(20, 12, 12, 0),
               actions: [
                 // Offline mode toggle
-                GestureDetector(
-                  onTap: () {
-                    final newVal = !lib.isManualOffline;
-                    lib.setManualOffline(newVal);
-                    if (newVal) _stopAndRefresh(lib);
-                  },
-                  child: AnimatedContainer(
+                Material(
+                  type: MaterialType.transparency,
+                  child: InkWell(
+                    onTap: () {
+                      final newVal = !lib.isManualOffline;
+                      lib.setManualOffline(newVal);
+                      if (newVal) _stopAndRefresh(lib);
+                    },
+                    borderRadius: BorderRadius.circular(20),
+                    child: AnimatedContainer(
                     duration: const Duration(milliseconds: 300),
                     curve: Curves.easeOutCubic,
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
@@ -421,26 +424,30 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
                     ),
                   ),
                 ),
+                ),
                 const SizedBox(width: 8),
                 // Unified button: "Sync" when idle, "Stop & Sync" when playing
                 if (!effectiveOffline)
-                  GestureDetector(
-                    onTap: _isSyncing ? null : () {
-                      if (_player.hasBook) {
-                        _stopAndRefresh(lib);
-                      } else {
-                        _confirmAndSync(lib);
-                      }
-                    },
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: subtleBg,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: subtleBorder),
-                      ),
-                      child: Row(
+                  Material(
+                    type: MaterialType.transparency,
+                    child: InkWell(
+                      onTap: _isSyncing ? null : () {
+                        if (_player.hasBook) {
+                          _stopAndRefresh(lib);
+                        } else {
+                          _confirmAndSync(lib);
+                        }
+                      },
+                      borderRadius: BorderRadius.circular(20),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: subtleBg,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: subtleBorder),
+                        ),
+                        child: Row(
                         mainAxisSize: MainAxisSize.min,
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -460,6 +467,7 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
                         ],
                       ),
                     ),
+                  ),
                   )
                 else
                   // Offline: just stop button (no sync)

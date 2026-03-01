@@ -47,6 +47,7 @@ class AuthorCard extends StatelessWidget {
                     imageUrl: imageUrl,
                     fit: BoxFit.cover,
                     httpHeaders: headers,
+                    fadeInDuration: const Duration(milliseconds: 300),
                     placeholder: (_, __) => _placeholder(cs),
                     errorWidget: (_, __, ___) => _placeholder(cs),
                   )

@@ -322,6 +322,7 @@ class _SeriesBooksSheetState extends State<SeriesBooksSheet> {
                                           imageUrl: coverUrl,
                                           fit: BoxFit.cover,
                                           httpHeaders: context.read<LibraryProvider>().mediaHeaders,
+                                          fadeInDuration: const Duration(milliseconds: 300),
                                           placeholder: (_, __) =>
                                               _placeholder(cs),
                                           errorWidget: (_, __, ___) =>
