@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/library_provider.dart';
 import '../services/audio_player_service.dart';
+import '../services/chromecast_service.dart';
 import '../services/sleep_timer_service.dart';
 import '../services/android_auto_service.dart';
 import '../widgets/expanded_card.dart';
@@ -47,6 +49,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   bool _wasPlaying = false;
   String? _lastItemId;
   bool _expandedIsOpen = false;
+  Timer? _castDisconnectTimer;
 
   void _switchToAbsorbing() {
     if (mounted) {
@@ -167,9 +170,23 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      _castDisconnectTimer?.cancel();
+      _castDisconnectTimer = null;
       _refreshData();
       // Check auto sleep in case we resumed into the window
       SleepTimerService().checkAutoSleep();
+    } else if (state == AppLifecycleState.paused) {
+      // Disconnect cast if app doesn't resume (e.g. swiped away).
+      // detached doesn't fire reliably on Android swipe-away.
+      final cast = ChromecastService();
+      if (cast.isConnected) {
+        _castDisconnectTimer = Timer(const Duration(seconds: 3), () {
+          cast.disconnect();
+        });
+      }
+    } else if (state == AppLifecycleState.detached) {
+      final cast = ChromecastService();
+      if (cast.isConnected) cast.disconnect();
     }
   }
 

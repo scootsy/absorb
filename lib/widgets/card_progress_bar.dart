@@ -3,6 +3,7 @@ import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../services/audio_player_service.dart';
+import '../services/chromecast_service.dart';
 import 'absorb_slider.dart';
 import 'absorbing_shared.dart';
 
@@ -20,7 +21,8 @@ class CardDualProgressBar extends StatefulWidget {
   final String? chapterName;
   final int chapterIndex;
   final int totalChapters;
-  const CardDualProgressBar({super.key, required this.player, required this.accent, required this.isActive, required this.staticProgress, required this.staticDuration, required this.chapters, this.showBookBar = true, this.showChapterBar = true, this.chapterName, this.chapterIndex = 0, this.totalChapters = 0});
+  final String? itemId;
+  const CardDualProgressBar({super.key, required this.player, required this.accent, required this.isActive, required this.staticProgress, required this.staticDuration, required this.chapters, this.showBookBar = true, this.showChapterBar = true, this.chapterName, this.chapterIndex = 0, this.totalChapters = 0, this.itemId});
   @override State<CardDualProgressBar> createState() => _CardDualProgressBarState();
 }
 
@@ -37,6 +39,7 @@ class _CardDualProgressBarState extends State<CardDualProgressBar> with TickerPr
   DateTime _lastPosTime = DateTime.now();
   double _currentSpeed = 1.0;
   bool _isPlaying = false;
+  bool _isCastMode = false;
   StreamSubscription<Duration>? _posSub;
 
   @override
@@ -47,13 +50,20 @@ class _CardDualProgressBarState extends State<CardDualProgressBar> with TickerPr
     _smoothTicker = AnimationController(vsync: this, duration: const Duration(days: 999))..repeat();
     _loadSettings();
     _subscribePosition();
-    // Listen for settings changes instead of polling
     PlayerSettings.settingsChanged.addListener(_loadSettings);
+    ChromecastService().addListener(_onCastChanged);
   }
 
   void _loadSettings() {
     PlayerSettings.getShowBookSlider().then((v) { if (mounted && v != _showBookSlider) setState(() => _showBookSlider = v); });
     PlayerSettings.getSpeedAdjustedTime().then((v) { if (mounted && v != _speedAdjustedTime) setState(() => _speedAdjustedTime = v); });
+  }
+
+  void _onCastChanged() {
+    final cast = ChromecastService();
+    final wasCast = _isCastMode;
+    final isCast = widget.itemId != null && cast.isCasting && cast.castingItemId == widget.itemId;
+    if (wasCast != isCast) _subscribePosition();
   }
 
   @override
@@ -69,7 +79,22 @@ class _CardDualProgressBarState extends State<CardDualProgressBar> with TickerPr
 
   void _subscribePosition() {
     _posSub?.cancel();
-    if (widget.isActive) {
+    final cast = ChromecastService();
+    _isCastMode = widget.itemId != null && cast.isCasting && cast.castingItemId == widget.itemId;
+
+    if (_isCastMode) {
+      _lastKnownPos = cast.castPosition.inMilliseconds / 1000.0;
+      _lastPosTime = DateTime.now();
+      _currentSpeed = cast.castSpeed;
+      _isPlaying = cast.isPlaying;
+      _posSub = cast.castPositionStream?.listen((dur) {
+        final posSeconds = dur.inMilliseconds / 1000.0;
+        _lastKnownPos = posSeconds;
+        _lastPosTime = DateTime.now();
+        _currentSpeed = cast.castSpeed;
+        _isPlaying = cast.isPlaying;
+      });
+    } else if (widget.isActive) {
       // Reset to the seed on a fresh subscription — clears stale position from a
       // previous episode and gives the near-zero rejection filter a clean baseline.
       final seedPos = widget.staticProgress * widget.staticDuration;
@@ -114,6 +139,11 @@ class _CardDualProgressBarState extends State<CardDualProgressBar> with TickerPr
   /// Smoothly interpolated position — predicts where playback is right now.
   /// Snaps immediately to seek target when a seek is in progress.
   double get _smoothPos {
+    if (_isCastMode) {
+      if (!_isPlaying) return _lastKnownPos;
+      final elapsed = DateTime.now().difference(_lastPosTime).inMilliseconds / 1000.0;
+      return _lastKnownPos + elapsed * _currentSpeed;
+    }
     // If a seek just happened, snap to the target immediately
     final seekTarget = widget.player.activeSeekTarget;
     if (seekTarget != null && (seekTarget - _lastKnownPos).abs() > 2.0) {
@@ -127,10 +157,19 @@ class _CardDualProgressBarState extends State<CardDualProgressBar> with TickerPr
   @override void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     PlayerSettings.settingsChanged.removeListener(_loadSettings);
+    ChromecastService().removeListener(_onCastChanged);
     _posSub?.cancel();
     _waveController.dispose();
     _smoothTicker.dispose();
     super.dispose();
+  }
+
+  void _doSeek(int seekMs) {
+    if (_isCastMode) {
+      ChromecastService().seekTo(Duration(milliseconds: seekMs));
+    } else {
+      widget.player.seekTo(Duration(milliseconds: seekMs));
+    }
   }
 
   @override
@@ -138,20 +177,38 @@ class _CardDualProgressBarState extends State<CardDualProgressBar> with TickerPr
     final tt = Theme.of(context).textTheme;
     final cs = Theme.of(context).colorScheme;
     final player = widget.player;
-    final active = widget.isActive;
+    final cast = ChromecastService();
+    final active = widget.isActive || _isCastMode;
 
     return ListenableBuilder(
       listenable: _smoothTicker,
       builder: (context, _) {
         final staticPos = widget.staticProgress * widget.staticDuration;
         final posS = active ? _smoothPos : staticPos;
-        final totalDur = active ? player.totalDuration : widget.staticDuration;
+        final totalDur = _isCastMode ? cast.castingDuration : (widget.isActive ? player.totalDuration : widget.staticDuration);
         final speed = active ? _currentSpeed : 1.0;
         final isPlaying = active && _isPlaying;
         final bookProgress = totalDur > 0 ? (posS / totalDur).clamp(0.0, 1.0) : 0.0;
 
         double chapterStart = 0, chapterEnd = totalDur;
-        if (active) {
+        if (_isCastMode) {
+          final chapter = cast.currentChapter;
+          if (chapter != null) {
+            chapterStart = (chapter['start'] as num?)?.toDouble() ?? 0;
+            chapterEnd = (chapter['end'] as num?)?.toDouble() ?? totalDur;
+          } else if (cast.castingChapters.isNotEmpty) {
+            for (final ch in cast.castingChapters) {
+              final m = ch as Map<String, dynamic>;
+              final s = (m['start'] as num?)?.toDouble() ?? 0;
+              final e = (m['end'] as num?)?.toDouble() ?? 0;
+              if (posS >= s && posS < e) {
+                chapterStart = s;
+                chapterEnd = e;
+                break;
+              }
+            }
+          }
+        } else if (widget.isActive) {
           final chapter = player.currentChapter;
           if (chapter != null) {
             chapterStart = (chapter['start'] as num?)?.toDouble() ?? 0;
@@ -202,8 +259,8 @@ class _CardDualProgressBarState extends State<CardDualProgressBar> with TickerPr
                   behavior: HitTestBehavior.opaque,
                   onHorizontalDragStart: active ? (d) { setState(() => _bookDragValue = (d.localPosition.dx / w).clamp(0.0, 1.0)); } : null,
                   onHorizontalDragUpdate: active ? (d) { setState(() => _bookDragValue = (d.localPosition.dx / w).clamp(0.0, 1.0)); } : null,
-                  onHorizontalDragEnd: active ? (_) { if (_bookDragValue != null) { final seekMs = (_bookDragValue! * totalDur * 1000).round(); player.seekTo(Duration(milliseconds: seekMs)); } setState(() => _bookDragValue = null); } : null,
-                  onTapUp: active ? (d) { final v = (d.localPosition.dx / w).clamp(0.0, 1.0); final seekMs = (v * totalDur * 1000).round(); player.seekTo(Duration(milliseconds: seekMs)); } : null,
+                  onHorizontalDragEnd: active ? (_) { if (_bookDragValue != null) { final seekMs = (_bookDragValue! * totalDur * 1000).round(); _doSeek(seekMs); } setState(() => _bookDragValue = null); } : null,
+                  onTapUp: active ? (d) { final v = (d.localPosition.dx / w).clamp(0.0, 1.0); final seekMs = (v * totalDur * 1000).round(); _doSeek(seekMs); } : null,
                   child: CustomPaint(size: Size(w, 32), painter: AbsorbProgressPainter(progress: p, accent: widget.accent.withValues(alpha: 0.5), isDragging: _bookDragValue != null)),
                 );
               })),
@@ -241,8 +298,8 @@ class _CardDualProgressBarState extends State<CardDualProgressBar> with TickerPr
                 behavior: HitTestBehavior.opaque,
                 onHorizontalDragStart: active ? (d) { setState(() => _chapterDragValue = (d.localPosition.dx / w).clamp(0.0, 1.0)); } : null,
                 onHorizontalDragUpdate: active ? (d) { setState(() => _chapterDragValue = (d.localPosition.dx / w).clamp(0.0, 1.0)); } : null,
-                onHorizontalDragEnd: active ? (_) { if (_chapterDragValue != null) { final seekMs = ((chapterStart + _chapterDragValue! * chapterDur) * 1000).round(); player.seekTo(Duration(milliseconds: seekMs)); } setState(() => _chapterDragValue = null); } : null,
-                onTapUp: active ? (d) { final v = (d.localPosition.dx / w).clamp(0.0, 1.0); final seekMs = ((chapterStart + v * chapterDur) * 1000).round(); player.seekTo(Duration(milliseconds: seekMs)); } : null,
+                onHorizontalDragEnd: active ? (_) { if (_chapterDragValue != null) { final seekMs = ((chapterStart + _chapterDragValue! * chapterDur) * 1000).round(); _doSeek(seekMs); } setState(() => _chapterDragValue = null); } : null,
+                onTapUp: active ? (d) { final v = (d.localPosition.dx / w).clamp(0.0, 1.0); final seekMs = ((chapterStart + v * chapterDur) * 1000).round(); _doSeek(seekMs); } : null,
                 child: CustomPaint(
                   size: Size(w, 30),
                   painter: ChapterPillPainter(

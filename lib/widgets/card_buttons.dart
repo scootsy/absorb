@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../services/audio_player_service.dart';
 import '../services/bookmark_service.dart';
+import '../services/chromecast_service.dart';
 import '../services/sleep_timer_service.dart';
 import 'absorb_slider.dart';
 import 'sleep_timer_sheet.dart';
@@ -202,9 +203,10 @@ class _CardBookmarkButtonInlineState extends State<CardBookmarkButtonInline> {
   @override Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final lg = widget.large;
+    final enabled = widget.isActive || _isCasting;
     return GestureDetector(
-      onTap: widget.isActive ? () => _showBookmarks(context) : () => showInactiveToast(context),
-      onLongPress: widget.isActive ? () => _quickAdd(context) : null,
+      onTap: enabled ? () => _showBookmarks(context) : () => showInactiveToast(context),
+      onLongPress: enabled ? () => _quickAdd(context) : null,
       child: Container(
         padding: EdgeInsets.symmetric(vertical: lg ? 12 : 8),
         decoration: BoxDecoration(
@@ -216,10 +218,10 @@ class _CardBookmarkButtonInlineState extends State<CardBookmarkButtonInline> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.bookmark_outline_rounded, size: lg ? 22 : 18,
-              color: widget.isActive ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24)),
+              color: enabled ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24)),
             const SizedBox(width: 8),
             Text(_count > 0 ? 'Bookmarks ($_count)' : 'Bookmark', style: TextStyle(
-              color: widget.isActive ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24),
+              color: enabled ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24),
               fontSize: lg ? 14 : 12, fontWeight: FontWeight.w500)),
           ],
         ),
@@ -227,10 +229,19 @@ class _CardBookmarkButtonInlineState extends State<CardBookmarkButtonInline> {
     );
   }
 
+  bool get _isCasting {
+    final cast = ChromecastService();
+    return cast.isCasting && cast.castingItemId == widget.itemId;
+  }
+
   void _quickAdd(BuildContext ctx) async {
-    final pos = widget.player.position.inMilliseconds / 1000.0;
+    final cast = ChromecastService();
+    final pos = _isCasting
+        ? cast.castPosition.inMilliseconds / 1000.0
+        : widget.player.position.inMilliseconds / 1000.0;
+    final chapters = _isCasting ? cast.castingChapters : widget.player.chapters;
     String? chTitle;
-    for (final ch in widget.player.chapters) {
+    for (final ch in chapters) {
       final m = ch as Map<String, dynamic>;
       final s = (m['start'] as num?)?.toDouble() ?? 0;
       final e = (m['end'] as num?)?.toDouble() ?? 0;
@@ -261,35 +272,45 @@ class CardSpeedButtonInline extends StatelessWidget {
   final Color accent;
   final bool isActive;
   final bool large;
-  const CardSpeedButtonInline({super.key, required this.player, required this.accent, required this.isActive, this.large = false});
+  final String? itemId;
+  const CardSpeedButtonInline({super.key, required this.player, required this.accent, required this.isActive, this.large = false, this.itemId});
 
   @override Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return GestureDetector(
-      onTap: isActive ? () {
-        showModalBottomSheet(context: context, backgroundColor: Colors.transparent,
-          useSafeArea: true,
-          builder: (ctx) => CardSpeedSheet(player: player, accent: accent));
-      } : () => showInactiveToast(context),
-      child: Container(
-        height: large ? 48 : 36,
-        decoration: BoxDecoration(
-          color: cs.onSurface.withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(large ? 16 : 14),
-          border: Border.all(color: cs.onSurface.withValues(alpha: 0.08)),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.speed_rounded, size: large ? 20 : 16,
-              color: isActive ? accent : cs.onSurface.withValues(alpha: 0.24)),
-            const SizedBox(width: 8),
-            Text('${player.speed.toStringAsFixed(2)}x', style: TextStyle(
-              color: isActive ? accent : cs.onSurface.withValues(alpha: 0.24),
-              fontSize: large ? 15 : 13, fontWeight: FontWeight.w700)),
-          ],
-        ),
-      ),
+    final cast = ChromecastService();
+    return ListenableBuilder(
+      listenable: cast,
+      builder: (context, _) {
+        final castNow = itemId != null && cast.isCasting && cast.castingItemId == itemId;
+        final enabledNow = isActive || castNow;
+        final speedNow = castNow ? cast.castSpeed : player.speed;
+        return GestureDetector(
+          onTap: enabledNow ? () {
+            showModalBottomSheet(context: context, backgroundColor: Colors.transparent,
+              useSafeArea: true,
+              builder: (ctx) => CardSpeedSheet(player: player, accent: accent, itemId: itemId));
+          } : () => showInactiveToast(context),
+          child: Container(
+            height: large ? 48 : 36,
+            decoration: BoxDecoration(
+              color: cs.onSurface.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(large ? 16 : 14),
+              border: Border.all(color: cs.onSurface.withValues(alpha: 0.08)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.speed_rounded, size: large ? 20 : 16,
+                  color: enabledNow ? accent : cs.onSurface.withValues(alpha: 0.24)),
+                const SizedBox(width: 8),
+                Text('${speedNow.toStringAsFixed(2)}x', style: TextStyle(
+                  color: enabledNow ? accent : cs.onSurface.withValues(alpha: 0.24),
+                  fontSize: large ? 15 : 13, fontWeight: FontWeight.w700)),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -297,8 +318,8 @@ class CardSpeedButtonInline extends StatelessWidget {
 // ─── SPEED SHEET ─────────────────────────────────────────────
 
 class CardSpeedSheet extends StatefulWidget {
-  final AudioPlayerService player; final Color accent;
-  const CardSpeedSheet({super.key, required this.player, required this.accent});
+  final AudioPlayerService player; final Color accent; final String? itemId;
+  const CardSpeedSheet({super.key, required this.player, required this.accent, this.itemId});
   @override State<CardSpeedSheet> createState() => _CardSpeedSheetState();
 }
 
@@ -306,8 +327,25 @@ class _CardSpeedSheetState extends State<CardSpeedSheet> {
   late double _speed;
   static const _presets = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5];
 
-  @override void initState() { super.initState(); _speed = (widget.player.speed * 20).round() / 20.0; }
-  void _setSpeed(double v) { final s = (v * 20).round() / 20.0; setState(() => _speed = s.clamp(0.5, 3.0)); widget.player.setSpeed(_speed); }
+  bool get _isCasting {
+    final cast = ChromecastService();
+    return widget.itemId != null && cast.isCasting && cast.castingItemId == widget.itemId;
+  }
+
+  @override void initState() {
+    super.initState();
+    final initialSpeed = _isCasting ? ChromecastService().castSpeed : widget.player.speed;
+    _speed = (initialSpeed * 20).round() / 20.0;
+  }
+  void _setSpeed(double v) {
+    final s = (v * 20).round() / 20.0;
+    setState(() => _speed = s.clamp(0.5, 3.0));
+    if (_isCasting) {
+      ChromecastService().setSpeed(_speed);
+    } else {
+      widget.player.setSpeed(_speed);
+    }
+  }
 
   @override Widget build(BuildContext context) {
     final tt = Theme.of(context).textTheme;
@@ -403,7 +441,15 @@ class _SimpleBookmarkSheetState extends State<SimpleBookmarkSheet> {
                       final bm = _bookmarks![i];
                       final hasNote = bm.note != null && bm.note!.isNotEmpty;
                       return InkWell(
-                        onTap: () { widget.player.seekTo(Duration(seconds: bm.positionSeconds.round())); Navigator.pop(ctx); },
+                        onTap: () {
+                          final seekDur = Duration(seconds: bm.positionSeconds.round());
+                          if (_isCasting) {
+                            ChromecastService().seekTo(seekDur);
+                          } else {
+                            widget.player.seekTo(seekDur);
+                          }
+                          Navigator.pop(ctx);
+                        },
                         onLongPress: () => _editBookmark(bm),
                         child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -451,14 +497,23 @@ class _SimpleBookmarkSheetState extends State<SimpleBookmarkSheet> {
     );
   }
 
+  bool get _isCasting {
+    final cast = ChromecastService();
+    return cast.isCasting && cast.castingItemId == widget.itemId;
+  }
+
   Future<void> _addBookmark() async {
-    final pos = widget.player.position.inMilliseconds / 1000.0;
+    final cast = ChromecastService();
+    final pos = _isCasting
+        ? cast.castPosition.inMilliseconds / 1000.0
+        : widget.player.position.inMilliseconds / 1000.0;
     final h = pos ~/ 3600; final m = (pos % 3600) ~/ 60; final s = pos.toInt() % 60;
     final posStr = h > 0 ? '$h:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}' : '$m:${s.toString().padLeft(2, '0')}';
 
     // Find current chapter name for default title
+    final chapters = _isCasting ? cast.castingChapters : widget.player.chapters;
     String defaultTitle = 'Bookmark at $posStr';
-    for (final ch in widget.player.chapters) {
+    for (final ch in chapters) {
       final cm = ch as Map<String, dynamic>;
       final cs = (cm['start'] as num?)?.toDouble() ?? 0;
       final ce = (cm['end'] as num?)?.toDouble() ?? 0;

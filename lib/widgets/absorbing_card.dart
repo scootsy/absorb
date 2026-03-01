@@ -63,6 +63,11 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
     }
     return true;
   }
+  bool get _isCastingThis {
+    final cast = ChromecastService();
+    return cast.isCasting && cast.castingItemId == _itemId;
+  }
+  bool get _isPlaybackActive => _isActive || _isCastingThis;
   bool get _isPodcastEpisode => _isActive && widget.player.currentEpisodeId != null;
 
   // For inactive podcast show cards: recentEpisode is embedded in the continue-listening entity
@@ -93,6 +98,12 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
     super.initState();
     _fetchChaptersIfNeeded();
     _startChapterTracking();
+    ChromecastService().addListener(_onCastChanged);
+  }
+
+  void _onCastChanged() {
+    _startChapterTracking();
+    if (mounted) setState(() {});
   }
 
   Future<void> _fetchChaptersIfNeeded() async {
@@ -121,12 +132,42 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
 
   void _startChapterTracking() {
     _chapterTrackSub?.cancel();
+
+    if (_isCastingThis) {
+      final stream = ChromecastService().castPositionStream;
+      if (stream == null) return;
+      _chapterTrackSub = stream.listen((pos) {
+        if (!_isCastingThis) return;
+        final posS = pos.inMilliseconds / 1000.0;
+        final chapters = ChromecastService().castingChapters;
+        if (chapters.isEmpty) {
+          final sec = pos.inSeconds;
+          if (sec != _lastChapterIdx) {
+            _lastChapterIdx = sec;
+            if (mounted) setState(() {});
+          }
+          return;
+        }
+        int idx = 0;
+        for (int i = 0; i < chapters.length; i++) {
+          final ch = chapters[i] as Map<String, dynamic>;
+          final start = (ch['start'] as num?)?.toDouble() ?? 0;
+          final end = (ch['end'] as num?)?.toDouble() ?? 0;
+          if (posS >= start && posS < end) { idx = i; break; }
+        }
+        if (idx != _lastChapterIdx) {
+          _lastChapterIdx = idx;
+          if (mounted) setState(() {});
+        }
+      });
+      return;
+    }
+
     _chapterTrackSub = widget.player.absolutePositionStream.listen((pos) {
       if (!_isActive) return;
       final posS = pos.inMilliseconds / 1000.0;
       final chapters = widget.player.chapters.isNotEmpty ? widget.player.chapters : _chapters;
       if (chapters.isEmpty) {
-        // No chapters (podcast episode) — rebuild every second to keep % live
         final sec = pos.inSeconds;
         if (sec != _lastChapterIdx) {
           _lastChapterIdx = sec;
@@ -175,6 +216,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
 
   @override
   void dispose() {
+    ChromecastService().removeListener(_onCastChanged);
     _chapterTrackSub?.cancel();
     _blurredCover?.dispose();
     super.dispose();
@@ -277,19 +319,20 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
       isFinished = lib.getProgressData(_itemId)?['isFinished'] == true;
     }
     final chapterIdx = _currentChapterIndex();
-    final totalChapters = _isActive ? widget.player.chapters.length : _chapters.length;
+    final cast = ChromecastService();
+    final totalChapters = _isCastingThis ? cast.castingChapters.length : (_isActive ? widget.player.chapters.length : _chapters.length);
     final double bookProgress;
-    if (_isActive && widget.player.totalDuration > 0) {
+    if (_isCastingThis && cast.castingDuration > 0) {
+      final castPos = cast.castPosition.inMilliseconds / 1000.0;
+      bookProgress = (castPos / cast.castingDuration).clamp(0.0, 1.0);
+    } else if (_isActive && widget.player.totalDuration > 0) {
       final playerPos = widget.player.position.inMilliseconds / 1000.0;
-      // Don't use player position if it's near zero while we have real progress
-      // (means the player is still loading/seeking to resume point)
       if (playerPos < 1.0 && progress > 0.01) {
-        bookProgress = progress; // Keep showing stored progress during load
+        bookProgress = progress;
       } else {
         bookProgress = (playerPos / widget.player.totalDuration).clamp(0.0, 1.0);
       }
     } else {
-      // For inactive cards, use stored progress (episode-level for podcast shows)
       bookProgress = progress;
     }
 
@@ -391,7 +434,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
               // ── Book progress bar ──
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: progress, staticDuration: _effectiveDuration, chapters: _chapters, showBookBar: !_isPodcastEpisode && !lib.isPodcastLibrary, showChapterBar: false),
+                child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: progress, staticDuration: _effectiveDuration, chapters: _chapters, showBookBar: !_isPodcastEpisode && !lib.isPodcastLibrary, showChapterBar: false, itemId: _itemId),
               ),
                 const SizedBox(height: 10),
                 // ── Cover with title/author/chapter overlaid + download badge ──
@@ -412,7 +455,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                       final castService = ChromecastService();
                       final isCastingThis = castService.isCasting && castService.castingItemId == _itemId;
                       return GestureDetector(
-                        onTap: _isActive && !isFinished ? () => _expandCard(context) : null,
+                        onTap: _isPlaybackActive && !isFinished ? () => _expandCard(context) : null,
                         child: Container(
                           width: coverSize,
                           height: coverSize,
@@ -563,7 +606,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                 // ── Chapter pill-scrubber (same width as book bar) ──
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: _isPodcastEpisode ? 0.0 : progress, staticDuration: _isPodcastEpisode ? widget.player.totalDuration : _effectiveDuration, chapters: _chapters, showBookBar: false, showChapterBar: true, chapterName: _isPodcastEpisode ? (widget.player.currentEpisodeTitle ?? widget.player.currentTitle ?? _title) : (_episodeId != null && !_isActive ? (_recentEpisode!['title'] as String? ?? _title) : _chapterName(chapterIdx)), chapterIndex: chapterIdx, totalChapters: totalChapters),
+                  child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: _isPodcastEpisode ? 0.0 : progress, staticDuration: _isPodcastEpisode ? widget.player.totalDuration : _effectiveDuration, chapters: _chapters, showBookBar: false, showChapterBar: true, chapterName: _isPodcastEpisode ? (widget.player.currentEpisodeTitle ?? widget.player.currentTitle ?? _title) : (_episodeId != null && !_isActive ? (_recentEpisode!['title'] as String? ?? _title) : _chapterName(chapterIdx)), chapterIndex: chapterIdx, totalChapters: totalChapters, itemId: _itemId),
                 ),
                 // ── Controls + buttons ──
                 Expanded(
@@ -585,14 +628,14 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                       Row(children: [
                         Expanded(child: CardWideButton(
                           icon: Icons.list_rounded, label: 'Chapters',
-                          accent: accent, isActive: _isActive,
+                          accent: accent, isActive: _isPlaybackActive,
                           onTap: () => _showChapters(context, accent, tt),
                         )),
                         const SizedBox(width: 8),
                         Expanded(child: CardWideButton(
                           icon: Icons.speed_rounded, label: 'Speed',
-                          accent: accent, isActive: _isActive,
-                          child: CardSpeedButtonInline(player: widget.player, accent: accent, isActive: _isActive),
+                          accent: accent, isActive: _isPlaybackActive,
+                          child: CardSpeedButtonInline(player: widget.player, accent: accent, isActive: _isActive, itemId: _itemId),
                         )),
                       ]),
                       const SizedBox(height: 8),
@@ -600,13 +643,13 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                       Row(children: [
                         Expanded(child: CardWideButton(
                           icon: Icons.bedtime_outlined, label: 'Sleep Timer',
-                          accent: accent, isActive: _isActive,
-                          child: CardSleepButtonInline(accent: accent, isActive: _isActive),
+                          accent: accent, isActive: _isPlaybackActive,
+                          child: CardSleepButtonInline(accent: accent, isActive: _isPlaybackActive),
                         )),
                         const SizedBox(width: 8),
                         Expanded(child: CardWideButton(
                           icon: Icons.bookmark_outline_rounded, label: 'Bookmarks',
-                          accent: accent, isActive: _isActive,
+                          accent: accent, isActive: _isPlaybackActive,
                           child: CardBookmarkButtonInline(
                             player: widget.player, accent: accent,
                             isActive: _isActive, itemId: _itemId,
@@ -671,10 +714,13 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
   }
 
   int _currentChapterIndex() {
-    final chapters = _isActive ? widget.player.chapters : _chapters;
+    final cast = ChromecastService();
+    final chapters = _isCastingThis ? cast.castingChapters : (_isActive ? widget.player.chapters : _chapters);
     if (chapters.isEmpty) return -1;
     double pos;
-    if (_isActive) {
+    if (_isCastingThis) {
+      pos = cast.castPosition.inMilliseconds / 1000.0;
+    } else if (_isActive) {
       pos = widget.player.position.inMilliseconds / 1000.0;
     } else {
       // Use stored progress to calculate position when not actively playing
@@ -696,6 +742,10 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
   }
 
   String? _chapterName(int chapterIdx) {
+    if (_isCastingThis) {
+      final ch = ChromecastService().currentChapter;
+      return ch?['title'] as String?;
+    }
     if (_isActive && widget.player.currentChapter != null) {
       return widget.player.currentChapter!['title'] as String?;
     }
@@ -789,10 +839,10 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
   }
 
   void _showChapters(BuildContext context, Color accent, TextTheme tt) {
-    final chapters = _isActive ? widget.player.chapters : _chapters;
+    final cast = ChromecastService();
+    final chapters = _isCastingThis ? cast.castingChapters : (_isActive ? widget.player.chapters : _chapters);
     if (chapters.isEmpty) return;
-    // Get total duration for percentage calc
-    final totalDur = _isActive ? widget.player.totalDuration : _duration;
+    final totalDur = _isCastingThis ? cast.castingDuration : (_isActive ? widget.player.totalDuration : _duration);
 
     showModalBottomSheet(
       context: context, isScrollControlled: true, useSafeArea: true,
@@ -817,9 +867,10 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                 final chTitle = ch['title'] as String? ?? 'Chapter ${i + 1}';
                 final start = (ch['start'] as num?)?.toDouble() ?? 0;
                 final end = (ch['end'] as num?)?.toDouble() ?? 0;
-                final pos = _isActive ? widget.player.position.inMilliseconds / 1000.0 : 0.0;
-                final isCurrent = _isActive && pos >= start && pos < end;
-                // Percentage of book at end of this chapter
+                final pos = _isCastingThis
+                    ? cast.castPosition.inMilliseconds / 1000.0
+                    : (_isActive ? widget.player.position.inMilliseconds / 1000.0 : 0.0);
+                final isCurrent = _isPlaybackActive && pos >= start && pos < end;
                 final pct = totalDur > 0 ? (end / totalDur * 100).round() : 0;
                 return ListTile(
                   dense: true, selected: isCurrent,
@@ -834,8 +885,13 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                     const SizedBox(width: 8),
                     Text(_fmtDur(end - start), style: tt.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
                   ]),
-                  onTap: _isActive ? () {
-                    widget.player.seekTo(Duration(seconds: start.round()));
+                  onTap: _isPlaybackActive ? () {
+                    final seekDur = Duration(seconds: start.round());
+                    if (_isCastingThis) {
+                      cast.seekTo(seekDur);
+                    } else {
+                      widget.player.seekTo(seekDur);
+                    }
                     Navigator.pop(ctx);
                   } : null,
                 );

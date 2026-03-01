@@ -112,6 +112,11 @@ class _ExpandedCardState extends State<ExpandedCard> {
     }
     return true;
   }
+  bool get _isCastingThis {
+    final cast = ChromecastService();
+    return cast.isCasting && cast.castingItemId == _itemId;
+  }
+  bool get _isPlaybackActive => _isActive || _isCastingThis;
   bool get _isPodcastEpisode => _isActive && widget.player.currentEpisodeId != null;
 
   Map<String, dynamic>? get _recentEpisode => _item['recentEpisode'] as Map<String, dynamic>?;
@@ -143,10 +148,17 @@ class _ExpandedCardState extends State<ExpandedCard> {
     _currentEpisodeId = widget.player.currentEpisodeId;
     _wasPlaying = widget.player.hasBook;
     widget.player.addListener(_onPlayerChanged);
+    ChromecastService().addListener(_onCastChanged);
     _startChapterTracking();
     _fetchChaptersIfNeeded();
     // Generate our own blurred cover
     _generateBlur();
+  }
+
+  void _onCastChanged() {
+    if (!mounted || _isPopping) return;
+    _startChapterTracking();
+    setState(() {});
   }
 
   @override
@@ -160,6 +172,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
   void dispose() {
     if (!_isPopping) {
       widget.player.removeListener(_onPlayerChanged);
+      ChromecastService().removeListener(_onCastChanged);
       _chapterTrackSub?.cancel();
     }
     _blurredCover?.dispose();
@@ -191,8 +204,9 @@ class _ExpandedCardState extends State<ExpandedCard> {
   void _dismissExpanded() {
     if (_isPopping) return;
     _isPopping = true;
-    // Remove listener immediately to prevent further callbacks during pop animation
+    // Remove listeners immediately to prevent further callbacks during pop animation
     widget.player.removeListener(_onPlayerChanged);
+    ChromecastService().removeListener(_onCastChanged);
     _chapterTrackSub?.cancel();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -262,6 +276,31 @@ class _ExpandedCardState extends State<ExpandedCard> {
 
   void _startChapterTracking() {
     _chapterTrackSub?.cancel();
+
+    if (_isCastingThis) {
+      final stream = ChromecastService().castPositionStream;
+      if (stream == null) return;
+      _chapterTrackSub = stream.listen((pos) {
+        if (!_isCastingThis) return;
+        final posS = pos.inMilliseconds / 1000.0;
+        final chapters = ChromecastService().castingChapters;
+        if (chapters.isEmpty) {
+          final sec = pos.inSeconds;
+          if (sec != _lastChapterIdx) { _lastChapterIdx = sec; if (mounted) setState(() {}); }
+          return;
+        }
+        int idx = 0;
+        for (int i = 0; i < chapters.length; i++) {
+          final ch = chapters[i] as Map<String, dynamic>;
+          final start = (ch['start'] as num?)?.toDouble() ?? 0;
+          final end = (ch['end'] as num?)?.toDouble() ?? 0;
+          if (posS >= start && posS < end) { idx = i; break; }
+        }
+        if (idx != _lastChapterIdx) { _lastChapterIdx = idx; if (mounted) setState(() {}); }
+      });
+      return;
+    }
+
     _chapterTrackSub = widget.player.absolutePositionStream.listen((pos) {
       if (!_isActive) return;
       final posS = pos.inMilliseconds / 1000.0;
@@ -410,9 +449,13 @@ class _ExpandedCardState extends State<ExpandedCard> {
       isFinished = lib.getProgressData(_itemId)?['isFinished'] == true;
     }
     final chapterIdx = _currentChapterIndex();
-    final totalChapters = _isActive ? widget.player.chapters.length : _chapters.length;
+    final cast = ChromecastService();
+    final totalChapters = _isCastingThis ? cast.castingChapters.length : (_isActive ? widget.player.chapters.length : _chapters.length);
     final double bookProgress;
-    if (_isActive && widget.player.totalDuration > 0) {
+    if (_isCastingThis && cast.castingDuration > 0) {
+      final castPos = cast.castPosition.inMilliseconds / 1000.0;
+      bookProgress = (castPos / cast.castingDuration).clamp(0.0, 1.0);
+    } else if (_isActive && widget.player.totalDuration > 0) {
       final playerPos = widget.player.position.inMilliseconds / 1000.0;
       if (playerPos < 1.0 && progress > 0.01) {
         bookProgress = progress;
@@ -501,7 +544,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
                       // ── Book progress bar ──
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: progress, staticDuration: _effectiveDuration, chapters: _chapters, showBookBar: !_isPodcastEpisode && !lib.isPodcastLibrary, showChapterBar: false),
+                        child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: progress, staticDuration: _effectiveDuration, chapters: _chapters, showBookBar: !_isPodcastEpisode && !lib.isPodcastLibrary, showChapterBar: false, itemId: _itemId),
                       ),
                       const SizedBox(height: 16),
                       // ── Cover art (larger — 90% width) ──
@@ -668,7 +711,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
                       // ── Chapter scrubber ──
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: _isPodcastEpisode ? 0.0 : progress, staticDuration: _isPodcastEpisode ? widget.player.totalDuration : _effectiveDuration, chapters: _chapters, showBookBar: false, showChapterBar: true, chapterName: _isPodcastEpisode ? (widget.player.currentEpisodeTitle ?? widget.player.currentTitle ?? _title) : (_episodeId != null && !_isActive ? (_recentEpisode!['title'] as String? ?? _title) : _chapterName(chapterIdx)), chapterIndex: chapterIdx, totalChapters: totalChapters),
+                        child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: _isPodcastEpisode ? 0.0 : progress, staticDuration: _isPodcastEpisode ? widget.player.totalDuration : _effectiveDuration, chapters: _chapters, showBookBar: false, showChapterBar: true, chapterName: _isPodcastEpisode ? (widget.player.currentEpisodeTitle ?? widget.player.currentTitle ?? _title) : (_episodeId != null && !_isActive ? (_recentEpisode!['title'] as String? ?? _title) : _chapterName(chapterIdx)), chapterIndex: chapterIdx, totalChapters: totalChapters, itemId: _itemId),
                       ),
                       // ── Controls + buttons ──
                       Expanded(
@@ -690,27 +733,27 @@ class _ExpandedCardState extends State<ExpandedCard> {
                               Row(children: [
                                 Expanded(child: CardWideButton(
                                   icon: Icons.list_rounded, label: 'Chapters',
-                                  accent: accent, isActive: _isActive, large: true,
+                                  accent: accent, isActive: _isPlaybackActive, large: true,
                                   onTap: () => _showChapters(context, accent, tt),
                                 )),
                                 const SizedBox(width: 10),
                                 Expanded(child: CardWideButton(
                                   icon: Icons.speed_rounded, label: 'Speed',
-                                  accent: accent, isActive: _isActive, large: true,
-                                  child: CardSpeedButtonInline(player: widget.player, accent: accent, isActive: _isActive, large: true),
+                                  accent: accent, isActive: _isPlaybackActive, large: true,
+                                  child: CardSpeedButtonInline(player: widget.player, accent: accent, isActive: _isActive, large: true, itemId: _itemId),
                                 )),
                               ]),
                               const SizedBox(height: 10),
                               Row(children: [
                                 Expanded(child: CardWideButton(
                                   icon: Icons.bedtime_outlined, label: 'Sleep Timer',
-                                  accent: accent, isActive: _isActive, large: true,
-                                  child: CardSleepButtonInline(accent: accent, isActive: _isActive, large: true),
+                                  accent: accent, isActive: _isPlaybackActive, large: true,
+                                  child: CardSleepButtonInline(accent: accent, isActive: _isPlaybackActive, large: true),
                                 )),
                                 const SizedBox(width: 10),
                                 Expanded(child: CardWideButton(
                                   icon: Icons.bookmark_outline_rounded, label: 'Bookmarks',
-                                  accent: accent, isActive: _isActive, large: true,
+                                  accent: accent, isActive: _isPlaybackActive, large: true,
                                   child: CardBookmarkButtonInline(
                                     player: widget.player, accent: accent,
                                     isActive: _isActive, itemId: _itemId, large: true,
@@ -718,26 +761,47 @@ class _ExpandedCardState extends State<ExpandedCard> {
                                 )),
                               ]),
                               const SizedBox(height: 10),
-                              // More menu
+                              // More menu / Cast controls
                               Center(
-                                child: GestureDetector(
-                                  behavior: HitTestBehavior.opaque,
-                                  onTap: () => _showMoreMenu(context, accent, tt),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-                                    decoration: BoxDecoration(
-                                      color: cs.onSurface.withValues(alpha: 0.08),
-                                      borderRadius: BorderRadius.circular(22),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(Icons.more_horiz_rounded, size: 20, color: cs.onSurface.withValues(alpha: 0.54)),
-                                        const SizedBox(width: 6),
-                                        Text('More', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: cs.onSurface.withValues(alpha: 0.54))),
-                                      ],
-                                    ),
-                                  ),
+                                child: ListenableBuilder(
+                                  listenable: ChromecastService(),
+                                  builder: (context, _) {
+                                    final castActive = ChromecastService().isCasting;
+                                    return GestureDetector(
+                                      behavior: HitTestBehavior.opaque,
+                                      onTap: castActive
+                                          ? () => showModalBottomSheet(
+                                                context: context,
+                                                backgroundColor: Theme.of(context).bottomSheetTheme.backgroundColor,
+                                                shape: const RoundedRectangleBorder(
+                                                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                                                ),
+                                                builder: (_) => const CastControlSheet(),
+                                              )
+                                          : () => _showMoreMenu(context, accent, tt),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                                        decoration: BoxDecoration(
+                                          color: castActive ? accent.withValues(alpha: 0.15) : cs.onSurface.withValues(alpha: 0.08),
+                                          borderRadius: BorderRadius.circular(22),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: castActive
+                                              ? [
+                                                  Icon(Icons.cast_connected_rounded, size: 20, color: accent),
+                                                  const SizedBox(width: 6),
+                                                  Text('Casting', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: accent)),
+                                                ]
+                                              : [
+                                                  Icon(Icons.more_horiz_rounded, size: 20, color: cs.onSurface.withValues(alpha: 0.54)),
+                                                  const SizedBox(width: 6),
+                                                  Text('More', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: cs.onSurface.withValues(alpha: 0.54))),
+                                                ],
+                                        ),
+                                      ),
+                                    );
+                                  },
                                 ),
                               ),
                               const SizedBox(height: 8),
@@ -805,10 +869,13 @@ class _ExpandedCardState extends State<ExpandedCard> {
   // ── Helpers (mirrored from AbsorbingCard) ──
 
   int _currentChapterIndex() {
-    final chapters = _isActive ? widget.player.chapters : _chapters;
+    final cast = ChromecastService();
+    final chapters = _isCastingThis ? cast.castingChapters : (_isActive ? widget.player.chapters : _chapters);
     if (chapters.isEmpty) return -1;
     double pos;
-    if (_isActive) {
+    if (_isCastingThis) {
+      pos = cast.castPosition.inMilliseconds / 1000.0;
+    } else if (_isActive) {
       pos = widget.player.position.inMilliseconds / 1000.0;
     } else {
       final lib = context.read<LibraryProvider>();
@@ -828,6 +895,10 @@ class _ExpandedCardState extends State<ExpandedCard> {
   }
 
   String? _chapterName(int chapterIdx) {
+    if (_isCastingThis) {
+      final ch = ChromecastService().currentChapter;
+      return ch?['title'] as String?;
+    }
     if (_isActive && widget.player.currentChapter != null) {
       return widget.player.currentChapter!['title'] as String?;
     }
@@ -912,9 +983,10 @@ class _ExpandedCardState extends State<ExpandedCard> {
   // ── Bottom sheets ──
 
   void _showChapters(BuildContext context, Color accent, TextTheme tt) {
-    final chapters = _isActive ? widget.player.chapters : _chapters;
+    final cast = ChromecastService();
+    final chapters = _isCastingThis ? cast.castingChapters : (_isActive ? widget.player.chapters : _chapters);
     if (chapters.isEmpty) return;
-    final totalDur = _isActive ? widget.player.totalDuration : _duration;
+    final totalDur = _isCastingThis ? cast.castingDuration : (_isActive ? widget.player.totalDuration : _duration);
 
     showModalBottomSheet(
       context: context, isScrollControlled: true, useSafeArea: true,
@@ -939,8 +1011,10 @@ class _ExpandedCardState extends State<ExpandedCard> {
                 final chTitle = ch['title'] as String? ?? 'Chapter ${i + 1}';
                 final start = (ch['start'] as num?)?.toDouble() ?? 0;
                 final end = (ch['end'] as num?)?.toDouble() ?? 0;
-                final pos = _isActive ? widget.player.position.inMilliseconds / 1000.0 : 0.0;
-                final isCurrent = _isActive && pos >= start && pos < end;
+                final pos = _isCastingThis
+                    ? cast.castPosition.inMilliseconds / 1000.0
+                    : (_isActive ? widget.player.position.inMilliseconds / 1000.0 : 0.0);
+                final isCurrent = _isPlaybackActive && pos >= start && pos < end;
                 final pct = totalDur > 0 ? (end / totalDur * 100).round() : 0;
                 return ListTile(
                   dense: true, selected: isCurrent,
@@ -955,8 +1029,13 @@ class _ExpandedCardState extends State<ExpandedCard> {
                     const SizedBox(width: 8),
                     Text(_fmtDur(end - start), style: tt.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
                   ]),
-                  onTap: _isActive ? () {
-                    widget.player.seekTo(Duration(seconds: start.round()));
+                  onTap: _isPlaybackActive ? () {
+                    final seekDur = Duration(seconds: start.round());
+                    if (_isCastingThis) {
+                      cast.seekTo(seekDur);
+                    } else {
+                      widget.player.seekTo(seekDur);
+                    }
                     Navigator.pop(ctx);
                   } : null,
                 );

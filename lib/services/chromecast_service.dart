@@ -430,7 +430,12 @@ class ChromecastService extends ChangeNotifier {
   // ── Controls ──
 
   Future<void> play() async { if (isConnected) try { await GoogleCastRemoteMediaClient.instance.play(); } catch (_) {} }
-  Future<void> pause() async { if (isConnected) try { await GoogleCastRemoteMediaClient.instance.pause(); _saveProgressLocal(); _syncProgressToServer(); } catch (_) {} }
+  Future<void> pause() async {
+    if (!isConnected) return;
+    try { await GoogleCastRemoteMediaClient.instance.pause(); } catch (_) {}
+    await _saveProgressLocal();
+    await _syncProgressToServer();
+  }
   Future<void> togglePlayPause() async { isPlaying ? await pause() : await play(); }
 
   Future<void> seekTo(Duration position) async {
@@ -488,7 +493,22 @@ class ChromecastService extends ChangeNotifier {
 
   Future<void> _syncProgressToServer() async {
     if (_castingItemId == null || _api == null) return;
-    try { await _progressSync.syncToServer(api: _api!, itemId: _castingItemId!); } catch (_) {}
+    final ct = _castPosition.inMilliseconds / 1000.0;
+    if (ct <= 0) return;
+    try {
+      final sessionData = _castingEpisodeId != null
+          ? await _api!.startEpisodePlaybackSession(_castingItemId!, _castingEpisodeId!)
+          : await _api!.startPlaybackSession(_castingItemId!);
+      if (sessionData != null) {
+        final sid = sessionData['id'] as String?;
+        if (sid != null) {
+          await _api!.syncPlaybackSession(sid, currentTime: ct, duration: _castingDuration);
+          await _api!.closePlaybackSession(sid);
+        }
+      }
+    } catch (e) {
+      debugPrint('[Cast] Server sync error: $e');
+    }
   }
 
   // ── Chapters ──

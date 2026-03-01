@@ -147,11 +147,6 @@ class _CardPlaybackControlsState extends State<CardPlaybackControls> with Single
                     ),
                   ),
                 ),
-                // Cast indicator badge
-                Positioned(
-                  bottom: 4,
-                  child: Icon(Icons.cast_connected_rounded, size: 14, color: widget.accent.withValues(alpha: 0.7)),
-                ),
               ],
             ),
           ),

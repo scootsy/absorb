@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'audio_player_service.dart';
+import 'chromecast_service.dart';
 
 enum SleepTimerMode { off, time, chapters }
 
@@ -81,6 +82,9 @@ class SleepTimerService extends ChangeNotifier {
   SleepTimerService._();
 
   final _player = AudioPlayerService();
+  final _cast = ChromecastService();
+
+  bool get _isPlaybackActive => _player.isPlaying || _cast.isPlaying;
 
   // ── State ──
   SleepTimerMode _mode = SleepTimerMode.off;
@@ -147,13 +151,13 @@ class SleepTimerService extends ChangeNotifier {
 
   void _startTimeCountdown() {
     _timer?.cancel();
-    _wasPlaying = _player.isPlaying;
+    _wasPlaying = _isPlaybackActive;
     _timer = Timer.periodic(const Duration(seconds: 1), (_) async {
       if (_timeRemaining.inSeconds <= 0) {
         _triggerSleep();
         return;
       }
-      final isPlaying = _player.isPlaying;
+      final isPlaying = _isPlaybackActive;
 
       // Detect pause→play transition and reset if setting is on
       if (isPlaying && !_wasPlaying) {
@@ -221,17 +225,22 @@ class SleepTimerService extends ChangeNotifier {
 
   void _startChapterMonitor() {
     _positionSub?.cancel();
-    _positionSub = _player.positionStream.listen((pos) {
-      if (!_player.isPlaying) return;
-      
+    // Use cast position stream when casting, local player stream otherwise
+    final stream = _cast.isCasting
+        ? _cast.castPositionStream
+        : _player.positionStream;
+    if (stream == null) return;
+    _positionSub = stream.listen((pos) {
+      if (!_isPlaybackActive) return;
+
       final currentIdx = _getCurrentChapterIndex();
       if (currentIdx < 0) return;
-      
+
       // Update chapters remaining
       if (_targetChapterIndex >= 0) {
         _chaptersRemaining = (_targetChapterIndex - currentIdx).clamp(0, 999);
         notifyListeners();
-        
+
         // Check if we've reached the end of the target chapter
         if (currentIdx >= _targetChapterIndex) {
           _triggerSleep();
@@ -252,9 +261,12 @@ class SleepTimerService extends ChangeNotifier {
   // ── Common ──
 
   int _getCurrentChapterIndex() {
-    final chapters = _player.chapters;
+    final casting = _cast.isCasting;
+    final chapters = casting ? _cast.castingChapters : _player.chapters;
     if (chapters.isEmpty) return -1;
-    final pos = _player.position.inMilliseconds / 1000.0;
+    final pos = casting
+        ? _cast.castPosition.inMilliseconds / 1000.0
+        : _player.position.inMilliseconds / 1000.0;
     for (int i = 0; i < chapters.length; i++) {
       final ch = chapters[i] as Map<String, dynamic>;
       final start = (ch['start'] as num?)?.toDouble() ?? 0;
@@ -267,7 +279,11 @@ class SleepTimerService extends ChangeNotifier {
   void _triggerSleep() {
     debugPrint('[SleepTimer] Triggering sleep — pausing playback');
     _vibrateSleep();
-    _player.pause();
+    if (_cast.isCasting) {
+      _cast.pause();
+    } else {
+      _player.pause();
+    }
     cancel();
   }
 
@@ -426,7 +442,7 @@ class SleepTimerService extends ChangeNotifier {
     debugPrint('[SleepTimer] Window boundary timer set for ${delay.inMinutes}m from now');
     _windowBoundaryTimer = Timer(delay, () {
       _windowBoundaryTimer = null;
-      if (_player.isPlaying && !isActive && !_autoSleepDismissed) {
+      if (_isPlaybackActive && !isActive && !_autoSleepDismissed) {
         _wasInWindow = true;
         debugPrint('[SleepTimer] Window boundary hit — starting ${settings.durationMinutes}m timer');
         setTimeSleep(Duration(minutes: settings.durationMinutes));
