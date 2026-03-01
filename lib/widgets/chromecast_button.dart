@@ -36,7 +36,7 @@ void showCastDevicePicker(
             Text('Cast to Device', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: cs.onSurface)),
             const SizedBox(height: 16),
             SizedBox(
-              height: 200,
+              height: 400,
               child: StreamBuilder<List<GoogleCastDevice>>(
                 stream: cast.devicesStream,
                 builder: (_, snap) {

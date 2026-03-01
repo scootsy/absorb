@@ -10,6 +10,7 @@ import '../services/api_service.dart';
 import '../services/progress_sync_service.dart';
 import '../services/download_service.dart';
 import '../services/android_auto_service.dart';
+import '../services/chromecast_service.dart';
 
 /// Holds library data and personalized home sections.
 class LibraryProvider extends ChangeNotifier {
@@ -309,6 +310,7 @@ class LibraryProvider extends ChangeNotifier {
       // Restore manual offline preference and start connectivity monitoring
       // Must complete before loading libraries so offline state is correct
       AudioPlayerService.setOnBookFinishedCallback(markFinishedLocally);
+      ChromecastService.setOnBookFinishedCallback(markFinishedLocally);
 
       restoreOfflineMode().then((_) {
         _startConnectivityMonitoring();
@@ -334,6 +336,7 @@ class LibraryProvider extends ChangeNotifier {
     } else {
       _lastAuthKey = null;
       AudioPlayerService.setOnBookFinishedCallback(null);
+      ChromecastService.setOnBookFinishedCallback(null);
       _libraries = [];
       _personalizedSections = [];
       _series = [];

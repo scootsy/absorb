@@ -39,10 +39,17 @@ class ChromecastService extends ChangeNotifier {
   Duration get castPosition => _castPosition;
   String? get connectedDeviceName => _connectedDeviceName;
 
+  /// Called when a book finishes during cast playback (before state is cleared).
+  static void Function(String itemId)? _onBookFinishedCallback;
+  static void setOnBookFinishedCallback(void Function(String itemId)? cb) {
+    _onBookFinishedCallback = cb;
+  }
+
   StreamSubscription? _sessionSub, _mediaStatusSub, _positionSub;
   Timer? _syncTimer;
   final _progressSync = ProgressSyncService();
   bool _initialized = false;
+  bool _isCompletingBook = false;
 
   // ── Init ──
 
@@ -120,6 +127,7 @@ class ChromecastService extends ChangeNotifier {
   void _listenToMediaStatus() {
     _mediaStatusSub?.cancel();
     _mediaStatusSub = GoogleCastRemoteMediaClient.instance.mediaStatusStream.listen((status) {
+      final prev = _playbackState;
       if (status == null) {
         _playbackState = CastPlaybackState.idle;
       } else {
@@ -132,6 +140,17 @@ class ChromecastService extends ChangeNotifier {
           default: _playbackState = CastPlaybackState.idle;
         }
       }
+
+      // Detect playback completion: was playing/buffering → now idle, position near end
+      if (_playbackState == CastPlaybackState.idle &&
+          (prev == CastPlaybackState.playing || prev == CastPlaybackState.buffering) &&
+          _castingItemId != null && _castingDuration > 0) {
+        final pos = _castPosition.inMilliseconds / 1000.0;
+        if (pos >= _castingDuration - 5) {
+          _onCastPlaybackComplete();
+        }
+      }
+
       notifyListeners();
     });
   }
@@ -479,6 +498,61 @@ class ChromecastService extends ChangeNotifier {
     _playbackState = CastPlaybackState.idle;
     _castingItemId = _castingEpisodeId = _castingTitle = _castingAuthor = _castingCoverUrl = null;
     _castingDuration = 0; _castingChapters = [];
+    notifyListeners();
+  }
+
+  // ── Completion ──
+
+  Future<void> _onCastPlaybackComplete() async {
+    if (_isCompletingBook) return;
+    _isCompletingBook = true;
+
+    final itemId = _castingItemId;
+    final episodeId = _castingEpisodeId;
+    final duration = _castingDuration;
+    debugPrint('[Cast] Book complete: $_castingTitle');
+
+    // Mark as finished on the server
+    if (itemId != null && _api != null) {
+      try {
+        if (episodeId != null) {
+          await _api!.updateEpisodeProgress(
+            itemId, episodeId,
+            currentTime: duration,
+            duration: duration,
+            isFinished: true,
+          );
+        } else {
+          await _api!.markFinished(itemId, duration);
+        }
+        debugPrint('[Cast] Marked as finished on server');
+      } catch (e) {
+        debugPrint('[Cast] Failed to mark finished: $e');
+      }
+    }
+
+    // Save locally as finished
+    if (itemId != null) {
+      final progressKey = episodeId != null ? '$itemId-$episodeId' : itemId;
+      await _progressSync.saveLocal(
+        itemId: progressKey,
+        currentTime: duration,
+        duration: duration,
+        speed: 1.0,
+      );
+    }
+
+    // Notify LibraryProvider (episodes don't mark the whole show as finished)
+    if (itemId != null && episodeId == null) {
+      _onBookFinishedCallback?.call(itemId);
+    }
+
+    // Clear casting state but keep connection
+    _syncTimer?.cancel();
+    _castingItemId = _castingEpisodeId = _castingTitle = _castingAuthor = _castingCoverUrl = null;
+    _castingDuration = 0;
+    _castingChapters = [];
+    _isCompletingBook = false;
     notifyListeners();
   }
 

@@ -535,7 +535,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                                   ),
                                 ],
                                 // Finished overlay
-                                if (isFinished && !isCastingThis) ...[
+                                if (isFinished) ...[
                                   Positioned.fill(
                                     child: Container(
                                       color: Colors.black.withValues(alpha: 0.78),
@@ -570,6 +570,26 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                                             ),
                                           ),
                                           const SizedBox(height: 8),
+                                          if (isDownloaded)
+                                            Padding(
+                                              padding: const EdgeInsets.only(bottom: 8),
+                                              child: SizedBox(
+                                                width: double.infinity,
+                                                child: GestureDetector(
+                                                  onTap: () => _deleteDownload(dlKey),
+                                                  child: Container(
+                                                    padding: const EdgeInsets.symmetric(vertical: 9),
+                                                    decoration: BoxDecoration(
+                                                      borderRadius: BorderRadius.circular(11),
+                                                      border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+                                                    ),
+                                                    child: const Text('Delete Download',
+                                                      textAlign: TextAlign.center,
+                                                      style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w500)),
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
                                           SizedBox(
                                             width: double.infinity,
                                             child: GestureDetector(
@@ -580,7 +600,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                                                   borderRadius: BorderRadius.circular(11),
                                                   border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
                                                 ),
-                                                child: const Text('Remove',
+                                                child: const Text('Remove from Absorbing',
                                                   textAlign: TextAlign.center,
                                                   style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w500)),
                                               ),
@@ -823,6 +843,10 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
       coverUrl: _coverUrl, totalDuration: _duration, chapters: _chapters,
     );
     if (mounted) setState(() => _isStarting = false);
+  }
+
+  void _deleteDownload(String dlKey) {
+    DownloadService().deleteDownload(dlKey);
   }
 
   Future<void> _removeFromAbsorbing() async {
