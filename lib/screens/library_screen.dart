@@ -17,7 +17,7 @@ import '../widgets/library_sort_filter_sheet.dart';
 enum LibrarySort { recentlyAdded, alphabetical, authorName, publishedYear, duration, random }
 
 // ─── Filter modes ────────────────────────────────────────────
-enum LibraryFilter { none, inProgress, finished, notStarted, downloaded, hasEbook, genre }
+enum LibraryFilter { none, inProgress, finished, notStarted, downloaded, inASeries, hasEbook, genre }
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
@@ -273,16 +273,18 @@ class LibraryScreenState extends State<LibraryScreen> {
     // Downloaded filter is client-side — handled after loading
 
     final useClientFilter = _filter == LibraryFilter.downloaded;
-    final limit = (_sort == LibrarySort.random || useClientFilter) ? 1000 : _pageSize;
+    final seriesOnlyFilter = _filter == LibraryFilter.inASeries;
+    final fetchAll = _sort == LibrarySort.random || useClientFilter || seriesOnlyFilter;
+    final limit = fetchAll ? 1000 : _pageSize;
 
     final result = await api.getLibraryItems(
       lib.selectedLibraryId!,
-      page: (_sort == LibrarySort.random || useClientFilter) ? 0 : _page,
+      page: fetchAll ? 0 : _page,
       limit: limit,
       sort: sort,
       desc: desc,
       filter: filter,
-      collapseSeries: _collapseSeries && !useClientFilter && !lib.isPodcastLibrary,
+      collapseSeries: (_collapseSeries || seriesOnlyFilter) && !useClientFilter && !lib.isPodcastLibrary,
     );
 
     if (result != null && mounted && gen == _loadGeneration) {
@@ -292,10 +294,13 @@ class LibraryScreenState extends State<LibraryScreen> {
         _totalItems = total;
         for (final r in results) {
           if (r is Map<String, dynamic>) {
-            // Client-side downloaded filter
+            // Client-side filters
             if (_filter == LibraryFilter.downloaded) {
               final id = r['id'] as String? ?? '';
               if (!DownloadService().isDownloaded(id)) continue;
+            }
+            if (seriesOnlyFilter) {
+              if (r['collapsedSeries'] == null) continue;
             }
             if (_hideEbookOnly && PlayerSettings.isEbookOnly(r)) continue;
             _items.add(r);
@@ -304,7 +309,7 @@ class LibraryScreenState extends State<LibraryScreen> {
         if (_sort == LibrarySort.random) {
           _items.shuffle(Random(_randomSeed));
           _hasMore = false;
-        } else if (useClientFilter) {
+        } else if (useClientFilter || seriesOnlyFilter) {
           _hasMore = false; // All loaded and filtered at once
         } else {
           _page++;
@@ -494,7 +499,8 @@ class LibraryScreenState extends State<LibraryScreen> {
     LibraryFilter.finished => 'Finished',
     LibraryFilter.notStarted => 'Not Started',
     LibraryFilter.downloaded => 'Downloaded',
-    LibraryFilter.hasEbook => 'eBooks',
+    LibraryFilter.inASeries => 'Series',
+    LibraryFilter.hasEbook => 'Has eBook',
     LibraryFilter.genre => _genreFilter ?? 'Genre',
     LibraryFilter.none => '',
   };
@@ -701,7 +707,7 @@ class LibraryScreenState extends State<LibraryScreen> {
                             children: [
                               Icon(Icons.auto_stories_rounded, size: 14, color: cs.secondary),
                               const SizedBox(width: 4),
-                              Text('Series', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: cs.secondary)),
+                              Text('Series Collapsed', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: cs.secondary)),
                               const SizedBox(width: 4),
                               Icon(Icons.close_rounded, size: 14, color: cs.secondary),
                             ],
@@ -755,6 +761,7 @@ class LibraryScreenState extends State<LibraryScreen> {
         LibraryFilter.finished => 'No finished books',
         LibraryFilter.notStarted => 'All books have been started',
         LibraryFilter.downloaded => 'No downloaded books',
+        LibraryFilter.inASeries => 'No series found',
         LibraryFilter.hasEbook => 'No books with eBooks',
         LibraryFilter.genre => 'No books in "${_genreFilter ?? 'genre'}"',
         LibraryFilter.none => 'No books found',

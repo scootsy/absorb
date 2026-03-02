@@ -166,7 +166,8 @@ class _SortFilterSheetState extends State<SortFilterSheet> with SingleTickerProv
       (LibraryFilter.finished, 'Finished', Icons.check_circle_outline_rounded),
       (LibraryFilter.notStarted, 'Not Started', Icons.circle_outlined),
       (LibraryFilter.downloaded, 'Downloaded', Icons.download_done_rounded),
-      (LibraryFilter.hasEbook, 'eBooks', Icons.menu_book_rounded),
+      (LibraryFilter.inASeries, 'Series', Icons.auto_stories_rounded),
+      (LibraryFilter.hasEbook, 'Has eBook', Icons.menu_book_rounded),
     ];
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
