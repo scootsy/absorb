@@ -11,7 +11,7 @@ void showEqualizerSheet(BuildContext context, Color accent) {
     builder: (ctx) => DraggableScrollableSheet(
       expand: false,
       initialChildSize: 0.75,
-      minChildSize: 0.05,
+      minChildSize: 0.05, snap: true,
       maxChildSize: 0.92,
       builder: (ctx, sc) => _EqualizerSheetContent(accent: accent, scrollController: sc),
     ),

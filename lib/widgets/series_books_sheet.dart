@@ -23,7 +23,7 @@ void showSeriesBooksSheet(BuildContext context, {
     showDragHandle: true,
     builder: (_) => DraggableScrollableSheet(
       initialChildSize: 0.7,
-      minChildSize: 0.05,
+      minChildSize: 0.05, snap: true,
       maxChildSize: 0.9,
       expand: false,
       builder: (ctx, scrollController) => SeriesBooksSheet(
@@ -222,7 +222,7 @@ class _SeriesBooksSheetState extends State<SeriesBooksSheet> {
     final seriesProgress = totalDuration > 0 ? (listenedDuration / totalDuration).clamp(0.0, 1.0) : 0.0;
     final seriesPercent = (seriesProgress * 100).round();
 
-    return Column(
+    return ClipRect(child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
@@ -613,7 +613,7 @@ class _SeriesBooksSheetState extends State<SeriesBooksSheet> {
           ),
           ),
       ],
-    );
+    ));
   }
 
   Widget _placeholder(ColorScheme cs) {

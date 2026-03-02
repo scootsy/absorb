@@ -324,7 +324,7 @@ class AuthorResultTile extends StatelessWidget {
       showDragHandle: true,
       builder: (_) => DraggableScrollableSheet(
         initialChildSize: 0.7,
-        minChildSize: 0.05,
+        minChildSize: 0.05, snap: true,
         maxChildSize: 0.9,
         expand: false,
         builder: (ctx, scrollController) => AuthorBooksSheet(

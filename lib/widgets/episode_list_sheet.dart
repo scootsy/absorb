@@ -31,7 +31,7 @@ class EpisodeListSheet extends StatefulWidget {
       backgroundColor: Colors.transparent,
       builder: (_) => DraggableScrollableSheet(
         initialChildSize: 0.85,
-        minChildSize: 0.05,
+        minChildSize: 0.05, snap: true,
         maxChildSize: 0.95,
         expand: false,
         builder: (_, scrollController) => EpisodeListSheet._(
@@ -461,7 +461,7 @@ class EpisodeDetailSheet extends StatefulWidget {
       backgroundColor: Colors.transparent,
       builder: (_) => DraggableScrollableSheet(
         initialChildSize: 0.75,
-        minChildSize: 0.05,
+        minChildSize: 0.05, snap: true,
         maxChildSize: 0.95,
         expand: false,
         builder: (_, scrollController) => EpisodeDetailSheet._(

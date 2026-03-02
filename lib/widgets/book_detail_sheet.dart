@@ -29,7 +29,7 @@ void showBookDetailSheet(BuildContext context, String itemId) {
     context: context, isScrollControlled: true, useSafeArea: true,
     backgroundColor: Colors.transparent,
     builder: (ctx) => DraggableScrollableSheet(
-      expand: false, initialChildSize: 0.85, minChildSize: 0.05, maxChildSize: 0.95,
+      expand: false, initialChildSize: 0.85, minChildSize: 0.05, snap: true, maxChildSize: 0.95,
       builder: (ctx, sc) => _BookDetailSheetContent(itemId: itemId, scrollController: sc),
     ),
   );
@@ -769,7 +769,7 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
       builder: (_) => DraggableScrollableSheet(
         expand: false,
         initialChildSize: 0.85,
-        minChildSize: 0.05,
+        minChildSize: 0.05, snap: true,
         maxChildSize: 0.95,
         builder: (ctx, sc) => MetadataLookupSheet(
           itemId: widget.itemId,

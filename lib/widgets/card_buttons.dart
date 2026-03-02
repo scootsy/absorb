@@ -260,7 +260,7 @@ class _CardBookmarkButtonInlineState extends State<CardBookmarkButtonInline> {
     showModalBottomSheet(
       context: context, backgroundColor: Colors.transparent, isScrollControlled: true, useSafeArea: true,
       builder: (ctx) => DraggableScrollableSheet(
-        initialChildSize: 0.6, minChildSize: 0.05, maxChildSize: 0.9, expand: false,
+        initialChildSize: 0.6, minChildSize: 0.05, snap: true, maxChildSize: 0.9, expand: false,
         builder: (ctx, sc) => SimpleBookmarkSheet(itemId: widget.itemId, player: widget.player, accent: widget.accent, scrollController: sc, onChanged: _loadCount),
       ),
     );
