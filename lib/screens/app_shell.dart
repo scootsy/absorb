@@ -45,10 +45,12 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   int _currentIndex = 2;
   final _libraryKey = GlobalKey<LibraryScreenState>();
   final _player = AudioPlayerService();
+  final _cast = ChromecastService();
   bool _playerHadBook = false;
   bool _wasPlaying = false;
   String? _lastItemId;
   bool _expandedIsOpen = false;
+  bool _wasCasting = false;
   Timer? _castDisconnectTimer;
 
   void _switchToAbsorbing() {
@@ -86,11 +88,14 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     AudioPlayerService.setOnEpisodePlayStartedCallback(AppShell.goToAbsorbingGlobal);
     _player.addListener(_onPlayerChanged);
+    _wasCasting = _cast.isCasting;
+    _cast.addListener(_onCastChanged);
   }
 
   @override
   void dispose() {
     _player.removeListener(_onPlayerChanged);
+    _cast.removeListener(_onCastChanged);
     if (_instance == this) _instance = null;
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -113,6 +118,14 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     if ((newBook || playStarted || itemChanged) && !_expandedIsOpen) {
       _maybeAutoExpand();
     }
+  }
+
+  void _onCastChanged() {
+    final casting = _cast.isCasting;
+    if (casting && !_wasCasting) {
+      _switchToAbsorbing();
+    }
+    _wasCasting = casting;
   }
 
   Future<void> _maybeAutoExpand() async {

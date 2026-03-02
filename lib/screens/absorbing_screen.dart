@@ -106,9 +106,15 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
       }
     }
 
-    // Track cast state — when casting stops/disconnects, keep that card at front
+    // Track cast state — when casting starts, scroll to the card;
+    // when it stops/disconnects, keep that card at front.
     final nowCasting = _cast.isCasting;
-    if (nowCasting) {
+    if (nowCasting && !_wasCasting) {
+      // Casting just started — scroll to the cast card
+      _lastCastItemId = _cast.castingItemId;
+      _lastCastEpisodeId = _cast.castingEpisodeId;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToActiveCard());
+    } else if (nowCasting) {
       _lastCastItemId = _cast.castingItemId;
       _lastCastEpisodeId = _cast.castingEpisodeId;
     } else if (_wasCasting && _lastCastItemId != null) {
@@ -126,12 +132,23 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
   }
 
   void _scrollToActiveCard({int retries = 2}) {
-    if (!_player.hasBook || !mounted) return;
+    if (!mounted) return;
+
+    // Determine the active key — local player takes priority, then cast
+    String? playingKey;
+    if (_player.hasBook && _player.currentItemId != null) {
+      playingKey = _player.currentEpisodeId != null
+          ? '${_player.currentItemId!}-${_player.currentEpisodeId!}'
+          : _player.currentItemId!;
+    } else if (_cast.isCasting && _cast.castingItemId != null) {
+      playingKey = _cast.castingEpisodeId != null
+          ? '${_cast.castingItemId!}-${_cast.castingEpisodeId!}'
+          : _cast.castingItemId!;
+    }
+    if (playingKey == null) return;
+
     final lib = context.read<LibraryProvider>();
     final books = _getAbsorbingBooks(lib);
-    final playingKey = _player.currentEpisodeId != null
-        ? '${_player.currentItemId!}-${_player.currentEpisodeId!}'
-        : _player.currentItemId!;
     final idx = books.indexWhere((b) => _absorbingKey(b) == playingKey);
     if (idx >= 0 && _pageController.hasClients) {
       if (_suppressReorder) {
@@ -364,10 +381,24 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
     final dl = DownloadService();
     var books = _getAbsorbingBooks(lib);
     
-    // Force offline mode when actually offline
+    // When offline, only show downloaded books — but always keep the
+    // currently playing/casting item visible so controls remain accessible.
     final effectiveOffline = lib.isOffline;
     if (effectiveOffline) {
-      books = books.where((b) => dl.isDownloaded(b['id'] as String? ?? '')).toList();
+      String? activeKey;
+      if (_player.hasBook && _player.currentItemId != null) {
+        activeKey = _player.currentEpisodeId != null
+            ? '${_player.currentItemId!}-${_player.currentEpisodeId!}'
+            : _player.currentItemId!;
+      } else if (_cast.isCasting && _cast.castingItemId != null) {
+        activeKey = _cast.castingEpisodeId != null
+            ? '${_cast.castingItemId!}-${_cast.castingEpisodeId!}'
+            : _cast.castingItemId!;
+      }
+      books = books.where((b) {
+        if (activeKey != null && _absorbingKey(b) == activeKey) return true;
+        return dl.isDownloaded(b['id'] as String? ?? '');
+      }).toList();
     }
 
     final muted = cs.onSurfaceVariant;
@@ -387,16 +418,13 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
               padding: const EdgeInsets.fromLTRB(20, 12, 12, 0),
               actions: [
                 // Offline mode toggle
-                Material(
-                  type: MaterialType.transparency,
-                  child: InkWell(
-                    onTap: () {
-                      final newVal = !lib.isManualOffline;
-                      lib.setManualOffline(newVal);
-                      if (newVal) _stopAndRefresh(lib);
-                    },
-                    borderRadius: BorderRadius.circular(20),
-                    child: AnimatedContainer(
+                GestureDetector(
+                  onTap: () {
+                    final newVal = !lib.isManualOffline;
+                    lib.setManualOffline(newVal);
+                    if (newVal) _stopAndRefresh(lib);
+                  },
+                  child: AnimatedContainer(
                     duration: const Duration(milliseconds: 300),
                     curve: Curves.easeOutCubic,
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
@@ -424,30 +452,26 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
                     ),
                   ),
                 ),
-                ),
                 const SizedBox(width: 8),
                 // Unified button: "Sync" when idle, "Stop & Sync" when playing
                 if (!effectiveOffline)
-                  Material(
-                    type: MaterialType.transparency,
-                    child: InkWell(
-                      onTap: _isSyncing ? null : () {
-                        if (_player.hasBook) {
-                          _stopAndRefresh(lib);
-                        } else {
-                          _confirmAndSync(lib);
-                        }
-                      },
-                      borderRadius: BorderRadius.circular(20),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: subtleBg,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: subtleBorder),
-                        ),
-                        child: Row(
+                  GestureDetector(
+                    onTap: _isSyncing ? null : () {
+                      if (_player.hasBook) {
+                        _stopAndRefresh(lib);
+                      } else {
+                        _confirmAndSync(lib);
+                      }
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: subtleBg,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: subtleBorder),
+                      ),
+                      child: Row(
                         mainAxisSize: MainAxisSize.min,
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -467,7 +491,6 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
                         ],
                       ),
                     ),
-                  ),
                   )
                 else
                   // Offline: just stop button (no sync)

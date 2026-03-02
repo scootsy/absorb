@@ -7,7 +7,6 @@ import '../providers/library_provider.dart';
 import '../services/download_service.dart';
 import 'book_detail_sheet.dart';
 import 'episode_list_sheet.dart';
-import 'pressable_card.dart';
 import 'series_books_sheet.dart';
 
 // ═══════════════════════════════════════════════════════════════
@@ -57,7 +56,7 @@ class _GridBookTileState extends State<GridBookTile> {
     final isDownloaded = _dl.isDownloaded(itemId);
     final isFinished = lib.getProgressData(itemId)?['isFinished'] == true;
 
-    return PressableCard(
+    return GestureDetector(
       onTap: () {
         if (itemId.isNotEmpty) {
           if (lib.isPodcastLibrary) {
@@ -67,7 +66,6 @@ class _GridBookTileState extends State<GridBookTile> {
           }
         }
       },
-      borderRadius: 10,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -88,7 +86,6 @@ class _GridBookTileState extends State<GridBookTile> {
                               imageUrl: coverUrl,
                               fit: BoxFit.cover,
                               httpHeaders: lib.mediaHeaders,
-                              fadeInDuration: const Duration(milliseconds: 300),
                               placeholder: (_, __) => _placeholder(cs),
                               errorWidget: (_, __, ___) => _placeholder(cs),
                             )
@@ -224,7 +221,7 @@ class GridSeriesTile extends StatelessWidget {
     final author = metadata['authorName'] as String? ?? '';
     final coverUrl = lib.getCoverUrl(itemId);
 
-    return PressableCard(
+    return GestureDetector(
       onTap: () {
         if (seriesId.isNotEmpty) {
           showSeriesBooksSheet(
@@ -237,7 +234,6 @@ class GridSeriesTile extends StatelessWidget {
           );
         }
       },
-      borderRadius: 10,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -257,7 +253,6 @@ class GridSeriesTile extends StatelessWidget {
                               imageUrl: coverUrl,
                               fit: BoxFit.cover,
                               httpHeaders: lib.mediaHeaders,
-                              fadeInDuration: const Duration(milliseconds: 300),
                               placeholder: (_, __) => _placeholder(cs),
                               errorWidget: (_, __, ___) => _placeholder(cs),
                             )

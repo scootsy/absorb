@@ -6,7 +6,6 @@ import '../providers/library_provider.dart';
 import '../services/download_service.dart';
 import 'book_detail_sheet.dart';
 import 'episode_list_sheet.dart';
-import 'pressable_card.dart';
 
 class BookCard extends StatelessWidget {
   final Map<String, dynamic> item;
@@ -191,7 +190,7 @@ class BookCard extends StatelessWidget {
         // Square cover
         AspectRatio(
           aspectRatio: 1,
-          child: PressableCard(
+          child: _PressableCard(
             onTap: () => _navigateToDetail(context),
             borderRadius: 12,
             child: Card(
@@ -300,7 +299,6 @@ class _CoverImage extends StatelessWidget {
       imageUrl: coverUrl!,
       fit: fit,
       httpHeaders: httpHeaders,
-      fadeInDuration: const Duration(milliseconds: 300),
       placeholder: (_, __) => _placeholder(),
       errorWidget: (_, __, ___) => _placeholder(),
     );
@@ -315,6 +313,63 @@ class _CoverImage extends StatelessWidget {
           size: 32,
           color: cs.onSurfaceVariant.withValues(alpha: 0.4),
         ),
+      ),
+    );
+  }
+}
+
+/// Pressable wrapper that scales down slightly on tap for tactile feedback.
+class _PressableCard extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onTap;
+  final double borderRadius;
+
+  const _PressableCard({
+    required this.child,
+    required this.onTap,
+    this.borderRadius = 12,
+  });
+
+  @override
+  State<_PressableCard> createState() => _PressableCardState();
+}
+
+class _PressableCardState extends State<_PressableCard>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 100),
+      reverseDuration: const Duration(milliseconds: 200),
+    );
+    _scale = Tween<double>(begin: 1.0, end: 0.96).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => _controller.forward(),
+      onTapUp: (_) {
+        _controller.reverse();
+        widget.onTap();
+      },
+      onTapCancel: () => _controller.reverse(),
+      child: ScaleTransition(
+        scale: _scale,
+        child: widget.child,
       ),
     );
   }

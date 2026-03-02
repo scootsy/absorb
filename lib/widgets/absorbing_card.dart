@@ -17,6 +17,7 @@ import 'equalizer_sheet.dart';
 import 'card_progress_bar.dart';
 import 'card_playback_controls.dart';
 import 'card_buttons.dart';
+import 'sleep_timer_sheet.dart';
 import 'chromecast_button.dart';
 import '../services/chromecast_service.dart';
 import '../services/progress_sync_service.dart';
@@ -40,6 +41,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
   StreamSubscription<Duration>? _chapterTrackSub;
   int _lastChapterIdx = -1;
   ui.Image? _blurredCover; // Precached blurred background
+  List<String> _buttonOrder = PlayerSettings.defaultButtonOrder;
 
   @override
   bool get wantKeepAlive => true;
@@ -99,6 +101,14 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
     _fetchChaptersIfNeeded();
     _startChapterTracking();
     ChromecastService().addListener(_onCastChanged);
+    PlayerSettings.settingsChanged.addListener(_reloadButtonOrder);
+    _reloadButtonOrder();
+  }
+
+  void _reloadButtonOrder() {
+    PlayerSettings.getCardButtonOrder().then((o) {
+      if (mounted && o.join(',') != _buttonOrder.join(',')) setState(() => _buttonOrder = o);
+    });
   }
 
   void _onCastChanged() {
@@ -216,6 +226,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
 
   @override
   void dispose() {
+    PlayerSettings.settingsChanged.removeListener(_reloadButtonOrder);
     ChromecastService().removeListener(_onCastChanged);
     _chapterTrackSub?.cancel();
     _blurredCover?.dispose();
@@ -479,7 +490,6 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                                             errorBuilder: (_, __, ___) => _coverPlaceholder())
                                         : CachedNetworkImage(imageUrl: _coverUrl!, fit: BoxFit.cover,
                                               httpHeaders: mediaHeaders,
-                                              fadeInDuration: const Duration(milliseconds: 300),
                                               placeholder: (_, __) => _coverPlaceholder(),
                                               errorWidget: (_, __, ___) => _coverPlaceholder())
                                     : _coverPlaceholder(),
@@ -647,35 +657,15 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                       const Spacer(flex: 3),
                       // ── Button grid (hugs bottom) ──
                       Row(children: [
-                        Expanded(child: CardWideButton(
-                          icon: Icons.list_rounded, label: 'Chapters',
-                          accent: accent, isActive: _isPlaybackActive,
-                          onTap: () => _showChapters(context, accent, tt),
-                        )),
+                        Expanded(child: _buildCardButton(_buttonOrder[0], accent, tt)),
                         const SizedBox(width: 8),
-                        Expanded(child: CardWideButton(
-                          icon: Icons.speed_rounded, label: 'Speed',
-                          accent: accent, isActive: _isPlaybackActive,
-                          child: CardSpeedButtonInline(player: widget.player, accent: accent, isActive: _isActive, itemId: _itemId),
-                        )),
+                        Expanded(child: _buildCardButton(_buttonOrder[1], accent, tt)),
                       ]),
                       const SizedBox(height: 8),
-                      // Secondary actions: Sleep Timer + Bookmarks
                       Row(children: [
-                        Expanded(child: CardWideButton(
-                          icon: Icons.bedtime_outlined, label: 'Sleep Timer',
-                          accent: accent, isActive: _isPlaybackActive,
-                          child: CardSleepButtonInline(accent: accent, isActive: _isPlaybackActive),
-                        )),
+                        Expanded(child: _buildCardButton(_buttonOrder[2], accent, tt)),
                         const SizedBox(width: 8),
-                        Expanded(child: CardWideButton(
-                          icon: Icons.bookmark_outline_rounded, label: 'Bookmarks',
-                          accent: accent, isActive: _isPlaybackActive,
-                          child: CardBookmarkButtonInline(
-                            player: widget.player, accent: accent,
-                            isActive: _isActive, itemId: _itemId,
-                          ),
-                        )),
+                        Expanded(child: _buildCardButton(_buttonOrder[3], accent, tt)),
                       ]),
                       const SizedBox(height: 8),
                       // More menu / Cast controls (centered below buttons)
@@ -863,6 +853,229 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
     }
   }
 
+  // ── Dynamic button builders ─────────────────────────────────
+
+  Widget _buildCardButton(String id, Color accent, TextTheme tt, {bool large = false}) {
+    switch (id) {
+      case 'chapters':
+        return CardWideButton(
+          icon: Icons.list_rounded, label: 'Chapters',
+          accent: accent, isActive: _isPlaybackActive, large: large,
+          onTap: () => _showChapters(context, accent, tt),
+        );
+      case 'speed':
+        return CardWideButton(
+          icon: Icons.speed_rounded, label: 'Speed',
+          accent: accent, isActive: _isPlaybackActive, large: large,
+          child: CardSpeedButtonInline(player: widget.player, accent: accent, isActive: _isActive, large: large, itemId: _itemId),
+        );
+      case 'sleep':
+        return CardWideButton(
+          icon: Icons.bedtime_outlined, label: 'Sleep Timer',
+          accent: accent, isActive: _isPlaybackActive, large: large,
+          child: CardSleepButtonInline(accent: accent, isActive: _isPlaybackActive, large: large),
+        );
+      case 'bookmarks':
+        return CardWideButton(
+          icon: Icons.bookmark_outline_rounded, label: 'Bookmarks',
+          accent: accent, isActive: _isPlaybackActive, large: large,
+          child: CardBookmarkButtonInline(
+            player: widget.player, accent: accent,
+            isActive: _isActive, itemId: _itemId, large: large,
+          ),
+        );
+      case 'details':
+        return CardWideButton(
+          icon: (_episodeId != null || _isPodcastEpisode) ? Icons.podcasts_rounded : Icons.info_outline_rounded,
+          label: (_episodeId != null || _isPodcastEpisode) ? 'Episode Details' : 'Book Details',
+          accent: accent, isActive: true, alwaysEnabled: true, large: large,
+          onTap: () {
+            if (_episodeId != null || _isPodcastEpisode) {
+              final episode = _recentEpisode ?? {
+                'id': widget.player.currentEpisodeId,
+                'title': widget.player.currentEpisodeTitle,
+                'duration': widget.player.totalDuration,
+              };
+              EpisodeDetailSheet.show(context, widget.item, episode);
+            } else {
+              showBookDetailSheet(context, _itemId);
+            }
+          },
+        );
+      case 'equalizer':
+        return CardWideButton(
+          icon: Icons.equalizer_rounded, label: 'Audio Enhancements',
+          accent: accent, isActive: true, alwaysEnabled: true, large: large,
+          onTap: () => showEqualizerSheet(context, accent),
+        );
+      case 'cast':
+        return ListenableBuilder(
+          listenable: ChromecastService(),
+          builder: (_, __) {
+            final cast = ChromecastService();
+            final String castLabel;
+            if (cast.isCasting && cast.castingItemId == _itemId) {
+              castLabel = 'Casting to ${cast.connectedDeviceName ?? "device"}';
+            } else if (cast.isConnected) {
+              castLabel = 'Cast to ${cast.connectedDeviceName ?? "device"}';
+            } else {
+              castLabel = 'Cast to Device';
+            }
+            return CardWideButton(
+              icon: cast.isConnected ? Icons.cast_connected_rounded : Icons.cast_rounded,
+              label: castLabel, accent: accent, isActive: true, alwaysEnabled: true, large: large,
+              onTap: () => _handleCastTap(context, accent),
+            );
+          },
+        );
+      case 'history':
+        return CardWideButton(
+          icon: Icons.history_rounded, label: 'Playback History',
+          accent: accent, isActive: _isActive, large: large,
+          onTap: () => _showHistory(context, accent, tt),
+        );
+      case 'remove':
+        return CardWideButton(
+          icon: Icons.remove_circle_outline_rounded, label: 'Remove from Absorbing',
+          accent: Colors.red.shade300, isActive: true, alwaysEnabled: true, large: large,
+          onTap: _removeFromAbsorbing,
+        );
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  Widget _buildMoreMenuItem(String id, Color accent, TextTheme tt, BuildContext ctx) {
+    switch (id) {
+      case 'chapters':
+        return MoreMenuItem(
+          icon: Icons.list_rounded, label: 'Chapters', accent: accent,
+          enabled: _isPlaybackActive,
+          onTap: () { Navigator.pop(ctx); _showChapters(context, accent, tt); },
+        );
+      case 'speed':
+        return MoreMenuItem(
+          icon: Icons.speed_rounded, label: 'Speed', accent: accent,
+          enabled: _isPlaybackActive,
+          onTap: () {
+            Navigator.pop(ctx);
+            showModalBottomSheet(context: context, backgroundColor: Colors.transparent, useSafeArea: true,
+              builder: (_) => CardSpeedSheet(player: widget.player, accent: accent, itemId: _itemId));
+          },
+        );
+      case 'sleep':
+        return MoreMenuItem(
+          icon: Icons.bedtime_outlined, label: 'Sleep Timer', accent: accent,
+          enabled: _isPlaybackActive,
+          onTap: () {
+            Navigator.pop(ctx);
+            showSleepTimerSheet(context, accent);
+          },
+        );
+      case 'bookmarks':
+        return MoreMenuItem(
+          icon: Icons.bookmark_outline_rounded, label: 'Bookmarks', accent: accent,
+          enabled: _isPlaybackActive,
+          onTap: () {
+            Navigator.pop(ctx);
+            showModalBottomSheet(context: context, backgroundColor: Colors.transparent, isScrollControlled: true, useSafeArea: true,
+              builder: (_) => DraggableScrollableSheet(
+                initialChildSize: 0.6, minChildSize: 0.05, maxChildSize: 0.9, expand: false,
+                builder: (_, sc) => SimpleBookmarkSheet(itemId: _itemId, player: widget.player, accent: accent, scrollController: sc, onChanged: () {}),
+              ),
+            );
+          },
+        );
+      case 'details':
+        return MoreMenuItem(
+          icon: (_episodeId != null || _isPodcastEpisode) ? Icons.podcasts_rounded : Icons.info_outline_rounded,
+          label: (_episodeId != null || _isPodcastEpisode) ? 'Episode Details' : 'Book Details',
+          accent: accent,
+          onTap: () {
+            Navigator.pop(ctx);
+            if (_episodeId != null || _isPodcastEpisode) {
+              final episode = _recentEpisode ?? {
+                'id': widget.player.currentEpisodeId,
+                'title': widget.player.currentEpisodeTitle,
+                'duration': widget.player.totalDuration,
+              };
+              EpisodeDetailSheet.show(context, widget.item, episode);
+            } else {
+              showBookDetailSheet(context, _itemId);
+            }
+          },
+        );
+      case 'equalizer':
+        return MoreMenuItem(
+          icon: Icons.equalizer_rounded, label: 'Audio Enhancements', accent: accent,
+          onTap: () { Navigator.pop(ctx); showEqualizerSheet(context, accent); },
+        );
+      case 'cast':
+        return ListenableBuilder(
+          listenable: ChromecastService(),
+          builder: (_, __) {
+            final cast = ChromecastService();
+            final String castLabel;
+            if (cast.isCasting && cast.castingItemId == _itemId) {
+              castLabel = 'Casting to ${cast.connectedDeviceName ?? "device"}';
+            } else if (cast.isConnected) {
+              castLabel = 'Cast to ${cast.connectedDeviceName ?? "device"}';
+            } else {
+              castLabel = 'Cast to Device';
+            }
+            return MoreMenuItem(
+              icon: cast.isConnected ? Icons.cast_connected_rounded : Icons.cast_rounded,
+              label: castLabel, accent: accent,
+              onTap: () { Navigator.pop(ctx); _handleCastTap(context, accent); },
+            );
+          },
+        );
+      case 'history':
+        return MoreMenuItem(
+          icon: Icons.history_rounded, label: 'Playback History', accent: accent,
+          enabled: _isActive,
+          onTap: () { Navigator.pop(ctx); _showHistory(context, accent, tt); },
+        );
+      case 'remove':
+        return MoreMenuItem(
+          icon: Icons.remove_circle_outline_rounded, label: 'Remove from Absorbing',
+          accent: Colors.red.shade300,
+          onTap: () { Navigator.pop(ctx); _removeFromAbsorbing(); },
+        );
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  void _handleCastTap(BuildContext context, Color accent) {
+    final cast = ChromecastService();
+    final auth = context.read<AuthProvider>();
+    final api = auth.apiService;
+    if (cast.isCasting && cast.castingItemId == _itemId) {
+      showModalBottomSheet(
+        context: context,
+        backgroundColor: Theme.of(context).bottomSheetTheme.backgroundColor,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        builder: (_) => CastControlSheet(),
+      );
+    } else if (cast.isConnected) {
+      if (api != null) {
+        cast.castItem(
+          api: api, itemId: _itemId, title: _title, author: _author,
+          coverUrl: _coverUrl, totalDuration: _duration, chapters: _chapters,
+          episodeId: _episodeId ?? widget.player.currentEpisodeId,
+        );
+      }
+    } else {
+      showCastDevicePicker(context,
+        api: api, itemId: _itemId, title: _title, author: _author,
+        coverUrl: _coverUrl, totalDuration: _duration, chapters: _chapters,
+        episodeId: _episodeId ?? widget.player.currentEpisodeId);
+    }
+  }
+
   void _showChapters(BuildContext context, Color accent, TextTheme tt) {
     final cast = ChromecastService();
     final chapters = _isCastingThis ? cast.castingChapters : (_isActive ? widget.player.chapters : _chapters);
@@ -1014,125 +1227,20 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
   }
 
   void _showMoreMenu(BuildContext context, Color accent, TextTheme tt) {
+    final overflowIds = _buttonOrder.skip(4).toList();
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        decoration: BoxDecoration(
-          color: Theme.of(context).bottomSheetTheme.backgroundColor,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          border: Border(top: BorderSide(color: accent.withValues(alpha: 0.2), width: 1)),
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Drag handle
-                Container(width: 40, height: 4, decoration: BoxDecoration(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.24), borderRadius: BorderRadius.circular(2))),
-                const SizedBox(height: 16),
-                // Details option
-                MoreMenuItem(
-                  icon: (_episodeId != null || _isPodcastEpisode) ? Icons.podcasts_rounded : Icons.info_outline_rounded,
-                  label: (_episodeId != null || _isPodcastEpisode) ? 'Episode Details' : 'Book Details',
-                  accent: accent,
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    if (_episodeId != null || _isPodcastEpisode) {
-                      final episode = _recentEpisode ?? {
-                        'id': widget.player.currentEpisodeId,
-                        'title': widget.player.currentEpisodeTitle,
-                        'duration': widget.player.totalDuration,
-                      };
-                      EpisodeDetailSheet.show(context, widget.item, episode);
-                    } else {
-                      showBookDetailSheet(context, _itemId);
-                    }
-                  },
-                ),
-                const SizedBox(height: 6),
-                // Equalizer / Audio Enhancements
-                MoreMenuItem(
-                  icon: Icons.equalizer_rounded,
-                  label: 'Audio Enhancements',
-                  accent: accent,
-                  onTap: () { Navigator.pop(ctx); showEqualizerSheet(context, accent); },
-                ),
-                const SizedBox(height: 6),
-                // Cast to device
-                ListenableBuilder(
-                  listenable: ChromecastService(),
-                  builder: (_, __) {
-                    final cast = ChromecastService();
-                    final String castLabel;
-                    if (cast.isCasting && cast.castingItemId == _itemId) {
-                      castLabel = 'Casting to ${cast.connectedDeviceName ?? "device"}';
-                    } else if (cast.isConnected) {
-                      castLabel = 'Cast to ${cast.connectedDeviceName ?? "device"}';
-                    } else {
-                      castLabel = 'Cast to Device';
-                    }
-                    return MoreMenuItem(
-                      icon: cast.isConnected ? Icons.cast_connected_rounded : Icons.cast_rounded,
-                      label: castLabel,
-                      accent: accent,
-                      onTap: () {
-                        final auth = context.read<AuthProvider>();
-                        final api = auth.apiService;
-                        Navigator.pop(ctx);
-                        if (cast.isCasting && cast.castingItemId == _itemId) {
-                          showModalBottomSheet(
-                            context: context,
-                            backgroundColor: Theme.of(context).bottomSheetTheme.backgroundColor,
-                            shape: const RoundedRectangleBorder(
-                              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                            ),
-                            builder: (_) => CastControlSheet(),
-                          );
-                        } else if (cast.isConnected) {
-                          if (api != null) {
-                            cast.castItem(
-                              api: api, itemId: _itemId, title: _title, author: _author,
-                              coverUrl: _coverUrl, totalDuration: _duration, chapters: _chapters,
-                              episodeId: _episodeId ?? widget.player.currentEpisodeId,
-                            );
-                          }
-                        } else {
-                          showCastDevicePicker(context,
-                            api: api, itemId: _itemId, title: _title, author: _author,
-                            coverUrl: _coverUrl, totalDuration: _duration, chapters: _chapters,
-                            episodeId: _episodeId ?? widget.player.currentEpisodeId);
-                        }
-                      },
-                    );
-                  },
-                ),
-                const SizedBox(height: 6),
-                // History option
-                MoreMenuItem(
-                  icon: Icons.history_rounded,
-                  label: 'Playback History',
-                  accent: accent,
-                  enabled: _isActive,
-                  onTap: () { Navigator.pop(ctx); _showHistory(context, accent, tt); },
-                ),
-                const SizedBox(height: 6),
-                // Remove from Absorbing
-                MoreMenuItem(
-                  icon: Icons.remove_circle_outline_rounded,
-                  label: 'Remove from Absorbing',
-                  accent: Colors.red.shade300,
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _removeFromAbsorbing();
-                  },
-                ),
-                const SizedBox(height: 8),
-              ],
-            ),
-          ),
-        ),
+      isScrollControlled: true,
+      builder: (ctx) => MoreMenuSheet(
+        overflowIds: overflowIds,
+        allIds: _buttonOrder,
+        accent: accent,
+        buildItem: (id) => _buildMoreMenuItem(id, accent, tt, ctx),
+        onReorder: (newOrder) {
+          setState(() => _buttonOrder = newOrder);
+          PlayerSettings.setCardButtonOrder(newOrder);
+        },
       ),
     );
   }
@@ -1177,3 +1285,4 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
     return '${m}m ${sec}s';
   }
 }
+

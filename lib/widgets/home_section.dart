@@ -1,13 +1,11 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import '../providers/library_provider.dart';
 import 'book_card.dart';
 import 'author_card.dart';
 import 'series_card.dart';
 import 'episode_list_sheet.dart';
-import 'pressable_card.dart';
 
 class HomeSection extends StatelessWidget {
   final String title;
@@ -226,7 +224,7 @@ class _EpisodeCard extends StatelessWidget {
     final episode = item['recentEpisode'] as Map<String, dynamic>?;
     final episodeTitle = episode?['title'] as String? ?? showTitle;
 
-    return PressableCard(
+    return GestureDetector(
       onTap: () {
         if (episode != null) {
           EpisodeDetailSheet.show(context, item, episode);
@@ -234,7 +232,6 @@ class _EpisodeCard extends StatelessWidget {
           EpisodeListSheet.show(context, item);
         }
       },
-      borderRadius: 12,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -260,14 +257,9 @@ class _EpisodeCard extends StatelessWidget {
                               color: cs.surfaceContainerHigh,
                               child: Icon(Icons.podcasts_rounded, size: 32,
                                 color: cs.onSurfaceVariant.withValues(alpha: 0.3))))
-                        : CachedNetworkImage(imageUrl: coverUrl, fit: BoxFit.cover,
-                            httpHeaders: lib.mediaHeaders,
-                            fadeInDuration: const Duration(milliseconds: 300),
-                            placeholder: (_, __) => Container(
-                              color: cs.surfaceContainerHigh,
-                              child: Icon(Icons.podcasts_rounded, size: 32,
-                                color: cs.onSurfaceVariant.withValues(alpha: 0.3))),
-                            errorWidget: (_, __, ___) => Container(
+                        : Image.network(coverUrl, fit: BoxFit.cover,
+                            headers: lib.mediaHeaders,
+                            errorBuilder: (_, __, ___) => Container(
                               color: cs.surfaceContainerHigh,
                               child: Icon(Icons.podcasts_rounded, size: 32,
                                 color: cs.onSurfaceVariant.withValues(alpha: 0.3))))

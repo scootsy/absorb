@@ -146,6 +146,23 @@ class PlayerSettings {
   static Future<bool> getFullScreenPlayer() => _get('fullScreenPlayer', false);
   static Future<void> setFullScreenPlayer(bool value) => _set('fullScreenPlayer', value);
 
+  // ── Card button order ──
+
+  static const defaultButtonOrder = ['chapters', 'speed', 'sleep', 'bookmarks', 'details', 'equalizer', 'cast', 'history', 'remove'];
+
+  static Future<List<String>> getCardButtonOrder() async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getStringList('card_button_order');
+    if (stored != null && stored.length == defaultButtonOrder.length) return stored;
+    return List.from(defaultButtonOrder);
+  }
+
+  static Future<void> setCardButtonOrder(List<String> order) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('card_button_order', order);
+    _notify();
+  }
+
   // ── Appearance ──
 
   static Future<String> getThemeMode() => _get('themeMode', 'dark');
@@ -506,6 +523,7 @@ class AudioPlayerService extends ChangeNotifier {
   }
 
   static AudioPlayerHandler? _handler;
+  static Completer<void> _initCompleter = Completer<void>();
   AudioPlayer? get _player => _handler?.player;
 
   String? _currentItemId;
@@ -674,36 +692,46 @@ class AudioPlayerService extends ChangeNotifier {
 
   /// MUST be called after Activity is ready.
   static Future<void> init() async {
-    _handler = await AudioService.init<AudioPlayerHandler>(
-      builder: () => AudioPlayerHandler(),
-      config: AudioServiceConfig(
-        androidNotificationChannelId: 'com.audiobookshelf.app.channel.audio',
-        androidNotificationChannelName: 'Absorb',
-        androidNotificationOngoing: true,
-        // Keep foreground service alive when paused — prevents Android from
-        // killing audio after notification interruptions on locked screen.
-        androidStopForegroundOnPause: false,
-        androidNotificationIcon: 'drawable/ic_notification',
-        androidBrowsableRootExtras: {
-          AndroidContentStyle.supportedKey: true,
-          AndroidContentStyle.browsableHintKey:
-              AndroidContentStyle.categoryListItemHintValue,
-          AndroidContentStyle.playableHintKey:
-              AndroidContentStyle.gridItemHintValue,
-          'android.media.browse.SEARCH_SUPPORTED': true,
-        },
-      ),
-    );
-    // Bind service so handler routes play/pause through service (for auto-rewind)
-    _handler!.bindService(_instance);
-    debugPrint('[Player] AudioService initialized');
-
-    // Configure audio session for audiobook playback
-    await _configureAudioSession();
+    // Reset for hot restart — previous completer may already be completed
+    // while _handler was reset to null by the Dart VM restart.
+    if (_initCompleter.isCompleted) {
+      _initCompleter = Completer<void>();
+    }
+    try {
+      _handler = await AudioService.init<AudioPlayerHandler>(
+        builder: () => AudioPlayerHandler(),
+        config: AudioServiceConfig(
+          androidNotificationChannelId: 'com.audiobookshelf.app.channel.audio',
+          androidNotificationChannelName: 'Absorb',
+          // Keep foreground service alive when paused — prevents Android from
+          // killing audio after notification interruptions on locked screen.
+          androidStopForegroundOnPause: false,
+          androidNotificationIcon: 'drawable/ic_notification',
+          androidBrowsableRootExtras: {
+            AndroidContentStyle.supportedKey: true,
+            AndroidContentStyle.browsableHintKey:
+                AndroidContentStyle.categoryListItemHintValue,
+            AndroidContentStyle.playableHintKey:
+                AndroidContentStyle.gridItemHintValue,
+            'android.media.browse.SEARCH_SUPPORTED': true,
+          },
+        ),
+      );
+      // Bind service so handler routes play/pause through service (for auto-rewind)
+      _handler!.bindService(_instance);
+      debugPrint('[Player] AudioService initialized');
+      // Configure audio session for audiobook playback
+      await _configureAudioSession();
+    } finally {
+      if (!_initCompleter.isCompleted) _initCompleter.complete();
+    }
   }
 
   static StreamSubscription? _interruptSub;
   static StreamSubscription? _noisySub;
+  // Set true when BT/headphones disconnect so the interruption handler
+  // won't auto-resume playback onto the phone speaker.
+  static bool _noisyPause = false;
 
   static Future<void> _configureAudioSession() async {
     final session = await AudioSession.instance;
@@ -726,22 +754,34 @@ class AudioPlayerService extends ChangeNotifier {
           service._wasPlayingBeforeInterrupt = true;
         }
       } else {
+        // Don't auto-resume if the pause was caused by BT/headphone disconnect.
+        // Some devices fire interruption-end AFTER becoming-noisy, which would
+        // resume playback on the phone speaker.
+        if (_noisyPause) {
+          debugPrint('[AudioSession] Interruption ended after noisy — skipping resume');
+          service._wasPlayingBeforeInterrupt = false;
+          return;
+        }
         if (service._wasPlayingBeforeInterrupt) {
           debugPrint('[AudioSession] Interruption ended — resuming');
           service._wasPlayingBeforeInterrupt = false;
           await Future.delayed(const Duration(milliseconds: 300));
+          // Re-check: another event (like becoming-noisy) might have fired
+          // during the delay.
+          if (_noisyPause) return;
           await service.play();
         }
       }
     });
 
-    // Headphones unplugged — pause, no auto-resume
+    // Headphones unplugged / BT disconnected — pause, no auto-resume
     _noisySub?.cancel();
     _noisySub = session.becomingNoisyEventStream.listen((_) async {
       final service = _instance;
+      debugPrint('[AudioSession] Becoming noisy — pausing');
+      _noisyPause = true;
+      service._wasPlayingBeforeInterrupt = false;
       if (service.isPlaying) {
-        debugPrint('[AudioSession] Becoming noisy — pausing');
-        service._wasPlayingBeforeInterrupt = false;
         await service.pause();
       }
     });
@@ -766,7 +806,11 @@ class AudioPlayerService extends ChangeNotifier {
     String? episodeTitle,
   }) async {
     if (_handler == null) {
-      debugPrint('[Player] Handler not initialized!');
+      debugPrint('[Player] Handler not yet initialized, waiting…');
+      await _initCompleter.future;
+    }
+    if (_handler == null) {
+      debugPrint('[Player] Handler init failed, cannot play');
       return false;
     }
 
@@ -1458,6 +1502,7 @@ class AudioPlayerService extends ChangeNotifier {
 
   Future<void> play() async {
     debugPrint('[Service] play() called — lastPause=${_lastPauseTime != null}');
+    _noisyPause = false; // User explicitly resumed — allow interrupt-resume again
     // Auto-rewind on resume if enabled
     if (_lastPauseTime != null && _player != null) {
       final settings = await AutoRewindSettings.load();

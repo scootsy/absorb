@@ -152,12 +152,6 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
     return auth.apiService?.getCoverUrl(widget.itemId, width: 800);
   }
 
-  /// Low-res cover for the blurred background (much cheaper to filter).
-  String? get _blurCoverUrl {
-    final auth = context.read<AuthProvider>();
-    return auth.apiService?.getCoverUrl(widget.itemId, width: 200);
-  }
-
   @override Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
@@ -165,14 +159,14 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(color: Theme.of(context).scaffoldBackgroundColor, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
       child: Stack(children: [
-        if (_blurCoverUrl != null)
+        if (_coverUrl != null)
           Positioned.fill(
             child: RepaintBoundary(
               child: CachedNetworkImage(
-                imageUrl: _blurCoverUrl!, fit: BoxFit.cover,
+                imageUrl: _coverUrl!, fit: BoxFit.cover,
                 httpHeaders: context.read<LibraryProvider>().mediaHeaders,
                 imageBuilder: (_, p) => ImageFiltered(
-                  imageFilter: ImageFilter.blur(sigmaX: 30, sigmaY: 30, tileMode: TileMode.decal),
+                  imageFilter: ImageFilter.blur(sigmaX: 50, sigmaY: 50, tileMode: TileMode.decal),
                   child: Image(image: p, fit: BoxFit.cover)),
                 placeholder: (_, __) => const SizedBox(),
                 errorWidget: (_, __, ___) => const SizedBox(),
@@ -187,7 +181,9 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
             ? Center(child: CircularProgressIndicator(strokeWidth: 2, color: cs.onSurface.withValues(alpha: 0.24)))
             : _item == null
                 ? Center(child: Text('Failed to load', style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant)))
-                : _buildContent(context, cs, tt),
+                : AnimatedOpacity(
+                    opacity: 1.0, duration: const Duration(milliseconds: 300),
+                    child: _buildContent(context, cs, tt)),
       ]),
     );
   }
@@ -649,7 +645,7 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
     // Mark finished locally first so the absorbing card shows the overlay
     // immediately when the player stops (which triggers the expanded card to pop)
     if (context.mounted) {
-      context.read<LibraryProvider>().markFinishedLocally(widget.itemId);
+      context.read<LibraryProvider>().markFinishedLocally(widget.itemId, skipRefresh: true);
     }
     if (player.currentItemId == widget.itemId) await player.stop();
     try {

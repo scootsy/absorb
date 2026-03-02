@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -26,6 +27,12 @@ class LibraryProvider extends ChangeNotifier {
   bool _isLoadingSeries = false;
   String? _errorMessage;
 
+  // Fetch deduplication for loadPersonalizedView
+  Future<void>? _personalizedInFlight;
+  DateTime? _lastPersonalizedFetchAt;
+  String? _lastPersonalizedFetchLibraryId;
+  static const _personalizedFetchCooldown = Duration(seconds: 5);
+
   // Offline mode
   bool _manualOffline = false;
   bool _networkOffline = false;
@@ -40,8 +47,10 @@ class LibraryProvider extends ChangeNotifier {
     _manualOffline = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('manual_offline_mode', value);
-    if (!value && !_networkOffline) {
-      // Going back online — flush pending syncs and refresh
+    if (!value) {
+      // Going back online — clear any stale network-offline flag too
+      _networkOffline = false;
+      _stopServerPingTimer();
       if (_api != null) {
         debugPrint('[Library] Manual offline off — flushing pending syncs');
         ProgressSyncService().flushPendingSync(api: _api!);
@@ -303,6 +312,12 @@ class LibraryProvider extends ChangeNotifier {
         _manualAbsorbRemoves.clear();
         _absorbingBookIds.clear();
         _absorbingItemCache.clear();
+        _personalizedInFlight = null;
+        _lastPersonalizedFetchAt = null;
+        _lastPersonalizedFetchLibraryId = null;
+        _networkOffline = false;
+        _connectivitySub?.cancel();
+        _stopServerPingTimer();
         _isLoading = true;
         notifyListeners(); // Immediately clear old user's data from UI
       }
@@ -346,6 +361,9 @@ class LibraryProvider extends ChangeNotifier {
       _errorMessage = null;
       _connectivitySub?.cancel();
       _stopServerPingTimer();
+      _personalizedInFlight = null;
+      _lastPersonalizedFetchAt = null;
+      _lastPersonalizedFetchLibraryId = null;
       notifyListeners();
     }
   }
@@ -407,6 +425,27 @@ class LibraryProvider extends ChangeNotifier {
     _serverPingTimer = null;
   }
 
+  /// Returns true for exceptions that indicate a real network problem
+  /// (unreachable server, DNS failure, TLS error). Non-network errors like
+  /// server 500s or JSON parse failures should not trigger offline mode.
+  bool _isLikelyNetworkError(Object error) {
+    return error is SocketException ||
+        error is TimeoutException ||
+        error is HandshakeException ||
+        error is HttpException;
+  }
+
+  /// Go offline due to a network error. Builds offline sections and starts
+  /// pinging the server for recovery if the device still has connectivity.
+  void _goOffline() {
+    if (_networkOffline) return;
+    debugPrint('[Library] Network error — going offline');
+    _networkOffline = true;
+    _buildOfflineSections();
+    notifyListeners();
+    if (_deviceHasConnectivity && !_manualOffline) _startServerPingTimer();
+  }
+
   void _buildProgressMap(AuthProvider auth) {
     _progressMap = {};
     final userJson = auth.userJson;
@@ -459,14 +498,13 @@ class LibraryProvider extends ChangeNotifier {
               ? bookLibraries.first['id']
               : _libraries.first['id'];
         }
-        await loadPersonalizedView();
+        await loadPersonalizedView(force: true);
       }
     } catch (e) {
-      // Network error — auto-switch to offline view
-      if (!_networkOffline) {
-        _networkOffline = true;
-        _buildOfflineSections();
-        if (_deviceHasConnectivity && !_manualOffline) _startServerPingTimer();
+      if (_isLikelyNetworkError(e)) {
+        _goOffline();
+      } else {
+        debugPrint('[Library] Non-network error (staying online): $e');
       }
     }
 
@@ -480,11 +518,39 @@ class LibraryProvider extends ChangeNotifier {
     _series = [];
     await ScopedPrefs.setString('last_selected_library', libraryId);
     notifyListeners();
-    await loadPersonalizedView();
+    await loadPersonalizedView(force: true);
   }
 
   /// Fetch personalized home sections for the selected library.
-  Future<void> loadPersonalizedView() async {
+  /// Deduplicates concurrent calls and enforces a cooldown unless [force] is true.
+  Future<void> loadPersonalizedView({bool force = false}) async {
+    // If a fetch is already in flight, just await it
+    final existing = _personalizedInFlight;
+    if (existing != null) {
+      await existing;
+      return;
+    }
+
+    // Skip if within cooldown (same library, not forced)
+    if (!force &&
+        _lastPersonalizedFetchAt != null &&
+        _lastPersonalizedFetchLibraryId == _selectedLibraryId &&
+        DateTime.now().difference(_lastPersonalizedFetchAt!) < _personalizedFetchCooldown) {
+      return;
+    }
+
+    final inFlight = _doLoadPersonalizedView();
+    _personalizedInFlight = inFlight;
+    try {
+      await inFlight;
+    } finally {
+      if (identical(_personalizedInFlight, inFlight)) {
+        _personalizedInFlight = null;
+      }
+    }
+  }
+
+  Future<void> _doLoadPersonalizedView() async {
     if (_api == null || _selectedLibraryId == null) return;
 
     if (isOffline) {
@@ -501,16 +567,17 @@ class LibraryProvider extends ChangeNotifier {
     }
 
     try {
+      _lastPersonalizedFetchAt = DateTime.now();
+      _lastPersonalizedFetchLibraryId = _selectedLibraryId;
       await _refreshProgress();
       _personalizedSections =
           await _api!.getPersonalizedView(_selectedLibraryId!);
       await _updateAbsorbingCache();
     } catch (e) {
-      // Network error — auto-switch to offline view
-      if (!_networkOffline) {
-        _networkOffline = true;
-        _buildOfflineSections();
-        if (_deviceHasConnectivity && !_manualOffline) _startServerPingTimer();
+      if (_isLikelyNetworkError(e)) {
+        _goOffline();
+      } else {
+        debugPrint('[Library] Non-network error (staying online): $e');
       }
     }
 
@@ -553,7 +620,7 @@ class LibraryProvider extends ChangeNotifier {
       await ProgressSyncService().flushPendingSync(api: _api!);
     }
     await Future.wait([
-      loadPersonalizedView(),
+      loadPersonalizedView(force: true),
       _refreshProgress(),
     ]);
     // Clear stale local overrides — server data is now authoritative
@@ -664,17 +731,29 @@ class LibraryProvider extends ChangeNotifier {
   List<String> get absorbingBookIds => _absorbingBookIds;
 
   /// Add a key to _absorbingBookIds if not already present.
-  /// If [afterKey] is provided and exists, insert right after it.
-  void _absorbingIdsAdd(String key, {String? afterKey}) {
-    if (_absorbingBookIds.contains(key)) return;
+  /// If [afterKey] is provided and exists, insert right after it —
+  /// and reposition the key if it's already in the list elsewhere.
+  /// Add a key to _absorbingBookIds.
+  /// [atFront] — if true (default), new items go to index 0 (stack behavior).
+  ///            Set false for background section refreshes where new items
+  ///            should append without disrupting the current order.
+  /// [afterKey] — insert right after this key (e.g. next-in-series after
+  ///             the finished book). Repositions even if already in list.
+  void _absorbingIdsAdd(String key, {String? afterKey, bool atFront = true}) {
     if (afterKey != null) {
-      final idx = _absorbingBookIds.indexOf(afterKey);
-      if (idx >= 0) {
-        _absorbingBookIds.insert(idx + 1, key);
+      final afterIdx = _absorbingBookIds.indexOf(afterKey);
+      if (afterIdx >= 0) {
+        _absorbingBookIds.remove(key);
+        _absorbingBookIds.insert(afterIdx + 1, key);
         return;
       }
     }
-    _absorbingIdsAdd(key);
+    if (_absorbingBookIds.contains(key)) return;
+    if (atFront) {
+      _absorbingBookIds.insert(0, key);
+    } else {
+      _absorbingBookIds.add(key);
+    }
   }
   Map<String, Map<String, dynamic>> get absorbingItemCache => _absorbingItemCache;
 
@@ -716,12 +795,17 @@ class LibraryProvider extends ChangeNotifier {
     // Map showId -> show entity from sections (for cloning into episode entries)
     final showEntities = <String, Map<String, dynamic>>{};
 
+    // Keys from continue-series that should be positioned after the finished book
+    final continueSeriesKeys = <String>[];
+
+    // Snapshot existing IDs so we only reposition truly NEW series continuations
+    final existingIds = Set<String>.from(_absorbingBookIds);
+
     for (final section in _personalizedSections) {
       final id = section['id'] as String? ?? '';
       if (id == 'continue-listening' || id == 'continue-series' ||
           id == 'downloaded-books') {
-        // For continue-series items, insert right after the finished book
-        final insertAfter = id == 'continue-series' ? _lastFinishedItemId : null;
+        final isContinueSeries = id == 'continue-series';
         for (final e in (section['entities'] as List<dynamic>? ?? [])) {
           if (e is Map<String, dynamic>) {
             final itemId = e['id'] as String?;
@@ -735,19 +819,33 @@ class LibraryProvider extends ChangeNotifier {
                 allowedKeys.add(key);
                 showEntities[itemId] = e;
                 if (!_manualAbsorbRemoves.contains(key)) {
-                  _absorbingIdsAdd(key, afterKey: insertAfter);
+                  _absorbingIdsAdd(key, atFront: false);
                   _absorbingItemCache[key] = {...e, '_absorbingKey': key};
+                  if (isContinueSeries) continueSeriesKeys.add(key);
                 }
               }
             } else {
               // Book — use plain itemId
               allowedKeys.add(itemId);
               if (!_manualAbsorbRemoves.contains(itemId)) {
-                _absorbingIdsAdd(itemId, afterKey: insertAfter);
+                _absorbingIdsAdd(itemId, atFront: false);
                 _absorbingItemCache[itemId] = e;
+                if (isContinueSeries) continueSeriesKeys.add(itemId);
               }
             }
           }
+        }
+      }
+    }
+
+    // Reposition continue-series items right after the finished book.
+    // Done after all sections so the order is correct regardless of which
+    // section the item appeared in first. Only move NEW items — ones already
+    // in the list keep their position to avoid shuffling.
+    if (_lastFinishedItemId != null && continueSeriesKeys.isNotEmpty) {
+      for (final key in continueSeriesKeys) {
+        if (!existingIds.contains(key)) {
+          _absorbingIdsAdd(key, afterKey: _lastFinishedItemId);
         }
       }
     }
@@ -802,7 +900,7 @@ class LibraryProvider extends ChangeNotifier {
           'title': 'Episode',
         };
         syntheticEntry['_absorbingKey'] = key;
-        _absorbingIdsAdd(key);
+        _absorbingIdsAdd(key, atFront: false);
         _absorbingItemCache[key] = syntheticEntry;
         allowedKeys.add(key);
       }
@@ -851,7 +949,7 @@ class LibraryProvider extends ChangeNotifier {
       _absorbingItemCache.remove(old);
     }
     for (final entry in migrateAdd.entries) {
-      _absorbingIdsAdd(entry.key);
+      _absorbingIdsAdd(entry.key, atFront: false);
       _absorbingItemCache[entry.key] = entry.value;
     }
 
@@ -949,17 +1047,23 @@ class LibraryProvider extends ChangeNotifier {
 
   /// Mark an item as finished locally so the overlay appears immediately,
   /// before the next server refresh confirms isFinished.
-  /// Then refresh sections so next-in-series appears without navigating away.
-  void markFinishedLocally(String itemId) {
+  /// If [skipRefresh] is true, the caller handles refreshing (e.g.
+  /// book_detail_sheet calls refresh() after api.markFinished).
+  void markFinishedLocally(String itemId, {bool skipRefresh = false}) {
     if (_resetItems.contains(itemId)) return;
     final existing = _progressMap[itemId] ?? {};
     _progressMap[itemId] = {...existing, 'isFinished': true};
     _localProgressOverrides[itemId] = 1.0;
     _lastFinishedItemId = itemId;
+    // Move finished book to front so the series continuation lands at index 1
+    _absorbingBookIds.remove(itemId);
+    _absorbingBookIds.insert(0, itemId);
     notifyListeners();
-    // Refresh sections so continue-series items appear immediately
-    if (_api != null && _selectedLibraryId != null && !isOffline) {
-      loadPersonalizedView();
+    if (!skipRefresh && _api != null && _selectedLibraryId != null && !isOffline) {
+      // Brief delay so the server has time to populate continue-series
+      Future.delayed(const Duration(milliseconds: 500), () {
+        loadPersonalizedView(force: true);
+      });
     }
   }
 

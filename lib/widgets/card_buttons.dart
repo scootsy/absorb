@@ -5,6 +5,7 @@ import '../services/bookmark_service.dart';
 import '../services/chromecast_service.dart';
 import '../services/sleep_timer_service.dart';
 import 'absorb_slider.dart';
+import 'card_button_config.dart';
 import 'sleep_timer_sheet.dart';
 
 /// Show a toast when the user taps a button that requires active playback.
@@ -563,5 +564,189 @@ class _SimpleBookmarkSheetState extends State<SimpleBookmarkSheet> {
       );
       _load();
     }
+  }
+}
+
+// ─── MORE MENU SHEET (with edit/reorder mode) ────────────────
+
+class MoreMenuSheet extends StatefulWidget {
+  final List<String> overflowIds;
+  final List<String> allIds;
+  final Color accent;
+  final Widget Function(String id) buildItem;
+  final ValueChanged<List<String>> onReorder;
+  const MoreMenuSheet({super.key, required this.overflowIds, required this.allIds, required this.accent, required this.buildItem, required this.onReorder});
+  @override State<MoreMenuSheet> createState() => _MoreMenuSheetState();
+}
+
+class _MoreMenuSheetState extends State<MoreMenuSheet> {
+  bool _editing = false;
+  late List<String> _order;
+
+  @override
+  void initState() {
+    super.initState();
+    _order = List.from(widget.allIds);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    if (_editing) return _buildEditMode(cs, tt);
+    return _buildNormalMode(cs, tt);
+  }
+
+  Widget _buildNormalMode(ColorScheme cs, TextTheme tt) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).bottomSheetTheme.backgroundColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        border: Border(top: BorderSide(color: widget.accent.withValues(alpha: 0.2), width: 1)),
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Drag handle + edit button
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  Container(width: 40, height: 4, decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.24), borderRadius: BorderRadius.circular(2))),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: GestureDetector(
+                      onTap: () => setState(() => _editing = true),
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: Icon(Icons.edit_rounded, size: 18, color: cs.onSurface.withValues(alpha: 0.5)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              for (int i = 0; i < widget.overflowIds.length; i++) ...[
+                widget.buildItem(widget.overflowIds[i]),
+                if (i < widget.overflowIds.length - 1) const SizedBox(height: 6),
+              ],
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEditMode(ColorScheme cs, TextTheme tt) {
+    return Container(
+      constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.7),
+      decoration: BoxDecoration(
+        color: Theme.of(context).bottomSheetTheme.backgroundColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        border: Border(top: BorderSide(color: widget.accent.withValues(alpha: 0.2), width: 1)),
+      ),
+      child: SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 8, 0),
+              child: Row(children: [
+                Text('Edit Layout', style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
+                const Spacer(),
+                IconButton(
+                  icon: Icon(Icons.check_rounded, color: widget.accent),
+                  onPressed: () {
+                    widget.onReorder(_order);
+                    Navigator.pop(context);
+                  },
+                ),
+              ]),
+            ),
+            const SizedBox(height: 4),
+            Flexible(
+              child: ReorderableListView.builder(
+                shrinkWrap: true,
+                buildDefaultDragHandles: false,
+                proxyDecorator: (child, index, animation) {
+                  return AnimatedBuilder(
+                    animation: animation,
+                    builder: (context, child) => Material(
+                      elevation: 4,
+                      borderRadius: BorderRadius.circular(12),
+                      color: cs.surfaceContainer,
+                      child: child,
+                    ),
+                    child: child,
+                  );
+                },
+                itemCount: _order.length,
+                onReorder: (oldIdx, newIdx) {
+                  setState(() {
+                    if (newIdx > oldIdx) newIdx--;
+                    final item = _order.removeAt(oldIdx);
+                    _order.insert(newIdx, item);
+                  });
+                },
+                itemBuilder: (context, i) {
+                  final id = _order[i];
+                  final def = buttonDefById(id);
+                  if (def == null) return SizedBox.shrink(key: ValueKey(id));
+
+                  final isOnCard = i < 4;
+                  final showDivider = i == 4;
+
+                  return Column(
+                    key: ValueKey(id),
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (showDivider)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                          child: Row(children: [
+                            Expanded(child: Divider(color: cs.onSurface.withValues(alpha: 0.12))),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              child: Text('In menu', style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.4))),
+                            ),
+                            Expanded(child: Divider(color: cs.onSurface.withValues(alpha: 0.12))),
+                          ]),
+                        ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: isOnCard ? widget.accent.withValues(alpha: 0.08) : Colors.transparent,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(children: [
+                            Icon(def.icon, size: 20, color: id == 'remove' ? Colors.red.shade300 : cs.onSurface.withValues(alpha: 0.7)),
+                            const SizedBox(width: 12),
+                            Expanded(child: Text(def.label, style: tt.bodyMedium)),
+                            if (isOnCard)
+                              Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: Text('${i + 1}', style: tt.labelSmall?.copyWith(color: widget.accent, fontWeight: FontWeight.w700)),
+                              ),
+                            ReorderableDragStartListener(
+                              index: i,
+                              child: Icon(Icons.drag_handle_rounded, size: 20, color: cs.onSurface.withValues(alpha: 0.3)),
+                            ),
+                          ]),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

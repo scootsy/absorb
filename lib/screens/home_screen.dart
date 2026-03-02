@@ -620,8 +620,7 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
               ),
             ),
             // Play button (48x48 hit area, 34x34 visual)
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
+            InkWell(
               onTap: _isLoading ? null : () {
                 if (isCurrentItem) {
                   player.togglePlayPause();
@@ -629,6 +628,7 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
                   _startBook(context, itemId);
                 }
               },
+              customBorder: const CircleBorder(),
               child: SizedBox(
                 width: 48, height: 48,
                 child: Center(

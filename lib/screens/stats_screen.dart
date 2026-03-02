@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
+import '../providers/library_provider.dart';
 import '../widgets/absorb_page_header.dart';
 import '../widgets/absorb_wave_icon.dart';
 
@@ -34,16 +35,6 @@ class _StatsScreenState extends State<StatsScreen> with SingleTickerProviderStat
 
   int _booksFinished = 0;
 
-  // Cached derived values — computed once in _loadStats, not on every build/frame.
-  double _totalSeconds = 0;
-  double _today = 0;
-  double _thisWeek = 0;
-  double _thisMonth = 0;
-  int _streak = 0;
-  int _longestStreakVal = 0;
-  List<_DayData> _weekData = [];
-  List<_DayData> _monthData = [];
-
   Future<void> _loadStats() async {
     final api = context.read<AuthProvider>().apiService;
     if (api == null) return;
@@ -66,18 +57,6 @@ class _StatsScreenState extends State<StatsScreen> with SingleTickerProviderStat
     }
 
     if (mounted) {
-      // Pre-compute derived values once, not on every build/frame.
-      if (stats != null) {
-        final dailyMap = _extractDailyMap(stats);
-        _totalSeconds = _safeNum(stats['totalTime']);
-        _today = _todaySeconds(dailyMap);
-        _thisWeek = _weekSeconds(dailyMap);
-        _thisMonth = _monthSeconds(dailyMap);
-        _streak = _currentStreak(dailyMap);
-        _longestStreakVal = _longestStreak(dailyMap);
-        _weekData = _last7Days(dailyMap);
-        _monthData = _last30Days(dailyMap);
-      }
       setState(() {
         _stats = stats;
         _sessions = sessionsData?['sessions'] as List<dynamic>? ?? [];
@@ -145,6 +124,18 @@ class _StatsScreenState extends State<StatsScreen> with SingleTickerProviderStat
   }
 
   Widget _buildContent(ColorScheme cs, TextTheme tt) {
+    final totalSeconds = _safeNum(_stats!['totalTime']);
+    final dailyMap = _extractDailyMap(_stats!);
+    final today = _todaySeconds(dailyMap);
+    final thisWeek = _weekSeconds(dailyMap);
+    final thisMonth = _monthSeconds(dailyMap);
+    final streak = _currentStreak(dailyMap);
+    final longestStreak = _longestStreak(dailyMap);
+    final weekData = _last7Days(dailyMap);
+    final monthData = _last30Days(dailyMap);
+    
+    // Count finished books — loaded from /api/me mediaProgress
+    final booksFinished = _booksFinished;
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
@@ -157,29 +148,29 @@ class _StatsScreenState extends State<StatsScreen> with SingleTickerProviderStat
         const SizedBox(height: 24),
 
         // ── Hero stat ──
-        _heroStat(tt, cs, _totalSeconds),
+        _heroStat(tt, cs, totalSeconds),
         const SizedBox(height: 24),
 
         // ── Quick stats row ──
         Row(children: [
           Expanded(child: _statCard(tt, cs, Icons.local_fire_department_rounded, Colors.orange,
-            '${_streak}d', 'Current\nStreak')),
+            '${streak}d', 'Current\nStreak')),
           const SizedBox(width: 10),
           Expanded(child: _statCard(tt, cs, Icons.emoji_events_rounded, Colors.amber,
-            '${_longestStreakVal}d', 'Longest\nStreak')),
+            '${longestStreak}d', 'Longest\nStreak')),
           const SizedBox(width: 10),
           Expanded(child: _statCard(tt, cs, Icons.check_circle_rounded, Colors.green,
-            '$_booksFinished', 'Books\nFinished')),
+            '$booksFinished', 'Books\nFinished')),
         ]),
         const SizedBox(height: 24),
 
         // ── Time periods ──
         Row(children: [
-          Expanded(child: _periodCard(tt, cs, 'Today', _today)),
+          Expanded(child: _periodCard(tt, cs, 'Today', today)),
           const SizedBox(width: 10),
-          Expanded(child: _periodCard(tt, cs, 'This Week', _thisWeek)),
+          Expanded(child: _periodCard(tt, cs, 'This Week', thisWeek)),
           const SizedBox(width: 10),
-          Expanded(child: _periodCard(tt, cs, 'This Month', _thisMonth)),
+          Expanded(child: _periodCard(tt, cs, 'This Month', thisMonth)),
         ]),
         const SizedBox(height: 28),
 
@@ -187,14 +178,14 @@ class _StatsScreenState extends State<StatsScreen> with SingleTickerProviderStat
         Text('Last 7 Days', style: tt.titleSmall?.copyWith(
           color: cs.onSurface.withValues(alpha: 0.6), fontWeight: FontWeight.w600)),
         const SizedBox(height: 12),
-        _barChart(_weekData, cs),
+        _barChart(weekData, cs),
         const SizedBox(height: 28),
 
         // ── Last 30 days chart ──
         Text('Last 30 Days', style: tt.titleSmall?.copyWith(
           color: cs.onSurface.withValues(alpha: 0.6), fontWeight: FontWeight.w600)),
         const SizedBox(height: 12),
-        _heatMap(_monthData, tt, cs),
+        _heatMap(monthData, tt, cs),
         const SizedBox(height: 28),
 
         // ── Recent Sessions ──
@@ -378,10 +369,13 @@ class _StatsScreenState extends State<StatsScreen> with SingleTickerProviderStat
   List<Widget> _buildSessions(TextTheme tt, ColorScheme cs) {
     return _sessions.take(15).map((s) {
       if (s is! Map<String, dynamic>) return const SizedBox.shrink();
-      final title = s['displayTitle'] as String? ??
-          (s['mediaMetadata'] as Map<String, dynamic>?)?['title'] as String? ?? 'Unknown';
-      final author = s['displayAuthor'] as String? ??
-          (s['mediaMetadata'] as Map<String, dynamic>?)?['authorName'] as String? ?? '';
+      final rawTitle = s['displayTitle'] as String?;
+      final rawAuthor = s['displayAuthor'] as String?;
+      final meta = s['mediaMetadata'] as Map<String, dynamic>?;
+      final title = (rawTitle != null && !_looksLikeId(rawTitle)) ? rawTitle
+          : meta?['title'] as String? ?? 'Unknown';
+      final author = (rawAuthor != null && !_looksLikeId(rawAuthor)) ? rawAuthor
+          : meta?['authorName'] as String? ?? '';
       final duration = _safeNum(s['timeListening']);
       final updatedAt = s['updatedAt'] is num
           ? DateTime.fromMillisecondsSinceEpoch((s['updatedAt'] as num).toInt())
@@ -484,6 +478,14 @@ class _StatsScreenState extends State<StatsScreen> with SingleTickerProviderStat
   // ─── HELPERS ────────────────────────────────────────────────
 
   static double _safeNum(dynamic val) => val is num ? val.toDouble() : 0;
+
+  /// Detects UUIDs and ABS prefixed IDs (li_, ep_, etc.) that the server
+  /// sometimes stores as displayTitle/displayAuthor for admin accounts.
+  static final _idPattern = RegExp(
+    r'^([a-z]{2,4}_)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+    caseSensitive: false,
+  );
+  static bool _looksLikeId(String v) => _idPattern.hasMatch(v);
 
   Map<String, dynamic> _extractDailyMap(Map<String, dynamic> stats) {
     for (final key in ['dayListeningMap', 'days']) {
