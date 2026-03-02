@@ -30,6 +30,10 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _lastHideEbook = false;
   bool _lastIsPodcast = false;
 
+  // Track player state to know when to re-fetch personalized sections.
+  String? _lastKnownItemId;
+  bool _lastKnownPlaying = false;
+
   @override
   void initState() {
     super.initState();
@@ -106,10 +110,23 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _onPlayerChanged() {
-    if (mounted) {
-      context.read<LibraryProvider>().refreshLocalProgress();
-      setState(() {});
+    if (!mounted) return;
+    final lib = context.read<LibraryProvider>();
+    lib.refreshLocalProgress();
+
+    // Re-fetch personalized sections when the playing item changes or
+    // playback stops — this updates the "Continue Listening" order.
+    final currentId = _player.currentItemId;
+    final playing = _player.isPlaying;
+    final itemChanged = currentId != _lastKnownItemId;
+    final stopped = _lastKnownPlaying && !playing;
+    _lastKnownItemId = currentId;
+    _lastKnownPlaying = playing;
+    if (itemChanged || stopped) {
+      lib.loadPersonalizedView();
     }
+
+    setState(() {});
   }
 
   void _showLibraryPicker(BuildContext context, ColorScheme cs, TextTheme tt, List<dynamic> allLibraries, LibraryProvider lib) {

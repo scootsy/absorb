@@ -280,10 +280,20 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   Future<void> _initServices() async {
+    // Start auth restoration immediately — it doesn't depend on audio/cast/
+    // download services and must not be blocked by a hanging service init.
+    if (mounted) {
+      context.read<AuthProvider>().tryRestoreSession();
+    }
+
     // Register the audio handler FIRST so Android Auto's MediaBrowserService
     // can connect immediately on cold start (app force-closed → AA launches it).
+    // Timeout prevents a hung audio subsystem from blocking all other services.
     try {
-      await AudioPlayerService.init();
+      await AudioPlayerService.init().timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => debugPrint('AudioService init timed out — continuing without it'),
+      );
     } catch (e) {
       debugPrint('AudioService init failed: $e');
     }
@@ -313,10 +323,6 @@ class _AuthGateState extends State<AuthGate> {
       Future.microtask(() => AndroidAutoService().refresh());
     } catch (e) {
       debugPrint('Service init failed: $e');
-    }
-
-    if (mounted) {
-      context.read<AuthProvider>().tryRestoreSession();
     }
   }
 
