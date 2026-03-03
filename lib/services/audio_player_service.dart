@@ -735,7 +735,7 @@ class AudioPlayerService extends ChangeNotifier {
   double? _lastSeekTargetSeconds;
   DateTime? _lastSeekTime;
 
-  /// If a seek happened within the last 2 seconds, returns the seek target.
+  /// If a seek happened recently, returns the seek target.
   /// Otherwise returns null (use the stream position).
   double? get activeSeekTarget {
     if (_lastSeekTargetSeconds == null || _lastSeekTime == null) return null;
@@ -746,6 +746,12 @@ class AudioPlayerService extends ChangeNotifier {
       return null;
     }
     return _lastSeekTargetSeconds;
+  }
+
+  /// Clear the seek target once the stream has caught up.
+  void clearSeekTarget() {
+    _lastSeekTargetSeconds = null;
+    _lastSeekTime = null;
   }
 
   final _progressSync = ProgressSyncService();

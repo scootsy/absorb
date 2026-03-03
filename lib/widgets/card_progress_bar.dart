@@ -115,6 +115,9 @@ class _CardDualProgressBarState extends State<CardDualProgressBar> with TickerPr
             _lastPosTime = DateTime.now();
             _currentSpeed = widget.player.speed;
             _isPlaying = widget.player.isPlaying;
+            // Stream has caught up — clear the seek target so subsequent
+            // position updates flow through normally without filtering.
+            widget.player.clearSeekTarget();
             return;
           }
           // Reject transient values far from the seek target
