@@ -747,7 +747,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
                       // ── Controls + buttons ──
                       Expanded(
                         child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          padding: const EdgeInsets.symmetric(horizontal: 28),
                           child: Column(
                             children: [
                               const Spacer(flex: 2),
@@ -759,20 +759,20 @@ class _ExpandedCardState extends State<ExpandedCard> {
                                 onStart: _startPlayback,
                                 itemId: _itemId,
                               ),
-                              const Spacer(flex: 3),
+                              const Spacer(flex: 4),
                               // ── Button grid ──
                               Row(children: [
                                 Expanded(child: _buildCardButton(_buttonOrder[0], accent, tt)),
                                 const SizedBox(width: 10),
                                 Expanded(child: _buildCardButton(_buttonOrder[1], accent, tt)),
                               ]),
-                              const SizedBox(height: 10),
+                              const SizedBox(height: 14),
                               Row(children: [
                                 Expanded(child: _buildCardButton(_buttonOrder[2], accent, tt)),
                                 const SizedBox(width: 10),
                                 Expanded(child: _buildCardButton(_buttonOrder[3], accent, tt)),
                               ]),
-                              const SizedBox(height: 10),
+                              const SizedBox(height: 14),
                               // More menu / Cast controls
                               Center(
                                 child: ListenableBuilder(
@@ -816,7 +816,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
                                   },
                                 ),
                               ),
-                              const SizedBox(height: 8),
+                              const SizedBox(height: 12),
                             ],
                           ),
                         ),
