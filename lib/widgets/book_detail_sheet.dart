@@ -23,6 +23,7 @@ import 'series_books_sheet.dart';
 import 'absorbing_shared.dart';
 import 'html_description.dart';
 import 'metadata_lookup_sheet.dart';
+import 'absorb_wave_icon.dart';
 
 // ─── BOOK DETAIL BOTTOM SHEET ───────────────────────────────
 
@@ -287,10 +288,9 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
                       height: 24,
                       child: AbsorbingWave(color: cs.onPrimary),
                     )
-                  : Icon(
-                      isFinished ? Icons.replay_rounded : Icons.waves_rounded,
-                      size: 24,
-                    ),
+                  : isFinished
+                      ? AbsorbReplayIcon(size: 24, color: cs.onPrimary)
+                      : const Icon(Icons.waves_rounded, size: 24),
               label: Text(
                 showAbsorbingState
                     ? 'Absorbing…'
