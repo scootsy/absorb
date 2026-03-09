@@ -68,6 +68,7 @@ class AuthProvider extends ChangeNotifier {
         _serverUrl = savedUrl;
         _token = savedToken;
         _username = savedUsername;
+        _userId = prefs.getString('user_id');
         _defaultLibraryId = savedLibraryId;
 
         // Restore custom headers
@@ -166,6 +167,7 @@ class AuthProvider extends ChangeNotifier {
       await prefs.setString('server_url', _serverUrl!);
       if (_token != null) await prefs.setString('token', _token!);
       if (_username != null) await prefs.setString('username', _username!);
+      if (_userId != null) await prefs.setString('user_id', _userId!);
       if (_defaultLibraryId != null) {
         await prefs.setString('default_library_id', _defaultLibraryId!);
       }
@@ -228,6 +230,7 @@ class AuthProvider extends ChangeNotifier {
       await prefs.setString('server_url', _serverUrl!);
       if (_token != null) await prefs.setString('token', _token!);
       if (_username != null) await prefs.setString('username', _username!);
+      if (_userId != null) await prefs.setString('user_id', _userId!);
       if (_defaultLibraryId != null) {
         await prefs.setString('default_library_id', _defaultLibraryId!);
       }
@@ -288,6 +291,7 @@ class AuthProvider extends ChangeNotifier {
       await prefs.remove('server_url');
       await prefs.remove('token');
       await prefs.remove('username');
+      await prefs.remove('user_id');
       await prefs.remove('default_library_id');
     } catch (_) {}
 
@@ -331,6 +335,7 @@ class AuthProvider extends ChangeNotifier {
       await prefs.setString('server_url', _serverUrl!);
       if (_token != null) await prefs.setString('token', _token!);
       if (_username != null) await prefs.setString('username', _username!);
+      if (_userId != null) await prefs.setString('user_id', _userId!);
     } catch (_) {}
 
     // Restore custom headers for this session

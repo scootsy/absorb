@@ -363,7 +363,7 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
       playing: _player.playing,
       updatePosition: _service != null && _service!.notifChapterMode
           ? _chapterRelativePosition()
-          : _player.position,
+          : _service?.position ?? _player.position,
       bufferedPosition: _player.bufferedPosition,
       // Report actual speed — always
       speed: _player.speed,
