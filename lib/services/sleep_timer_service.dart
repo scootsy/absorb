@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:sensors_plus/sensors_plus.dart';
+import 'package:vibration/vibration.dart';
 import 'scoped_prefs.dart';
 import 'audio_player_service.dart';
 import 'chromecast_service.dart';
@@ -98,10 +98,10 @@ class SleepTimerService extends ChangeNotifier {
   StreamSubscription? _positionSub;
   
   // Shake detection
-  bool _shakeEnabled = true;
+  String _shakeMode = 'addTime'; // 'off', 'addTime', 'resetTimer'
   StreamSubscription? _accelSub;
   DateTime _lastShake = DateTime(2000);
-  static const _shakeThreshold = 25.0; // m/s² — raised from 15 to require a deliberate shake
+  static const _shakeThreshold = 20.0; // m/s² of linear acceleration (gravity excluded)
   static const _shakeCooldown = Duration(seconds: 3);
 
   // Wind-down warning & fade
@@ -121,7 +121,7 @@ class SleepTimerService extends ChangeNotifier {
       : 0.0;
   int get chaptersRemaining => _chaptersRemaining;
   bool get isActive => _mode != SleepTimerMode.off;
-  bool get shakeEnabled => _shakeEnabled;
+  String get shakeMode => _shakeMode;
 
   String get displayLabel {
     if (_mode == SleepTimerMode.time) {
@@ -335,23 +335,24 @@ class SleepTimerService extends ChangeNotifier {
 
   // ── Haptic feedback ──
 
-  /// Medium buzz when shake-snooze adds time
-  void _vibrateSnooze() {
-    HapticFeedback.mediumImpact();
+  /// Double buzz when shake-snooze adds time
+  void _vibrateSnooze() async {
+    if (await Vibration.hasVibrator()) {
+      Vibration.vibrate(pattern: [0, 150, 100, 150]);
+    }
   }
 
 
   // ── Shake detection ──
 
   Future<void> _startShakeDetection() async {
-    _shakeEnabled = await PlayerSettings.getShakeToResetSleep();
-    if (!_shakeEnabled) return;
+    _shakeMode = await PlayerSettings.getShakeMode();
+    if (_shakeMode == 'off') return;
     
     _accelSub?.cancel();
-    _accelSub = accelerometerEventStream().listen((event) {
+    _accelSub = userAccelerometerEventStream().listen((event) {
       final magnitude = sqrt(
         event.x * event.x + event.y * event.y + event.z * event.z);
-      // Subtract gravity (~9.8) and check threshold
       if (magnitude > _shakeThreshold) {
         final now = DateTime.now();
         if (now.difference(_lastShake) > _shakeCooldown) {
@@ -359,6 +360,8 @@ class SleepTimerService extends ChangeNotifier {
           _onShake();
         }
       }
+    }, onError: (e) {
+      debugPrint('[SleepTimer] Accelerometer error: $e');
     });
   }
 
@@ -465,17 +468,31 @@ class SleepTimerService extends ChangeNotifier {
 
   void _onShake() async {
     if (!isActive) return;
-    debugPrint('[SleepTimer] Shake detected!');
-    
+    _shakeMode = await PlayerSettings.getShakeMode();
+    if (_shakeMode == 'off') return;
+    debugPrint('[SleepTimer] Shake detected! mode=$_shakeMode');
+
     _vibrateSnooze();
 
-    if (_mode == SleepTimerMode.time) {
-      final addMins = await PlayerSettings.getShakeAddMinutes();
-      addTime(Duration(minutes: addMins));
-      onToast?.call('+$addMins min added!');
-    } else if (_mode == SleepTimerMode.chapters) {
-      addChapter();
-      onToast?.call('+1 chapter added!');
+    if (_shakeMode == 'resetTimer') {
+      if (_mode == SleepTimerMode.time) {
+        _timeRemaining = _initialDuration;
+        _warningSent = false;
+        notifyListeners();
+        onToast?.call('Timer reset to ${_initialDuration.inMinutes}m');
+      } else if (_mode == SleepTimerMode.chapters) {
+        // For chapter mode, re-count from current position
+        onToast?.call('Timer reset');
+      }
+    } else if (_shakeMode == 'addTime') {
+      if (_mode == SleepTimerMode.time) {
+        final addMins = await PlayerSettings.getShakeAddMinutes();
+        addTime(Duration(minutes: addMins));
+        onToast?.call('+$addMins min added!');
+      } else if (_mode == SleepTimerMode.chapters) {
+        addChapter();
+        onToast?.call('+1 chapter added!');
+      }
     }
   }
 

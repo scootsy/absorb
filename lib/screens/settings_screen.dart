@@ -42,7 +42,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _speedAdjustedTime = true;
   int _forwardSkip = 30;
   int _backSkip = 10;
-  bool _shakeToResetSleep = true;
+  String _shakeMode = 'addTime';
   bool _resetSleepOnPause = false;
   bool _sleepFadeOut = true;
   int _shakeAddMinutes = 5;
@@ -105,7 +105,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       PlayerSettings.getSpeedAdjustedTime(),                  // 7
       PlayerSettings.getForwardSkip(),                        // 8
       PlayerSettings.getBackSkip(),                           // 9
-      PlayerSettings.getShakeToResetSleep(),                  // 10
+      PlayerSettings.getShakeMode(),                           // 10
       PlayerSettings.getResetSleepOnPause(),                  // 11
       PlayerSettings.getSleepFadeOut(),                       // 12
       PlayerSettings.getShakeAddMinutes(),                    // 13
@@ -135,7 +135,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final speedAdj = results[7] as bool;
     final fwd = results[8] as int;
     final bk = results[9] as int;
-    final shake = results[10] as bool;
+    final shake = results[10] as String;
     final resetOnPause = results[11] as bool;
     final sleepFade = results[12] as bool;
     final shakeMins = results[13] as int;
@@ -165,7 +165,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _speedAdjustedTime = speedAdj;
       _forwardSkip = fwd;
       _backSkip = bk;
-      _shakeToResetSleep = shake;
+      _shakeMode = shake;
       _resetSleepOnPause = resetOnPause;
       _sleepFadeOut = sleepFade;
       _shakeAddMinutes = shakeMins;
@@ -910,18 +910,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   isExpanded: _expandedSection == 'Sleep Timer',
                   onExpansionChanged: (v) => _onSectionExpanded('Sleep Timer', v),
                   children: [
-                    SwitchListTile(
-                      title: const Text('Shake to add time'),
-                      subtitle: Text(
-                        _shakeToResetSleep ? 'On — adds $_shakeAddMinutes min per shake' : 'Off',
-                        style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
-                      value: _shakeToResetSleep,
-                      onChanged: _loaded ? (v) {
-                        setState(() => _shakeToResetSleep = v);
-                        PlayerSettings.setShakeToResetSleep(v);
-                      } : null,
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                      child: Text('Shake during sleep timer', style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant)),
                     ),
-                    if (_shakeToResetSleep) ...[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: SegmentedButton<String>(
+                          segments: const [
+                            ButtonSegment(value: 'off', label: Text('Off')),
+                            ButtonSegment(value: 'addTime', label: Text('Add Time')),
+                            ButtonSegment(value: 'resetTimer', label: Text('Reset')),
+                          ],
+                          selected: {_shakeMode},
+                          onSelectionChanged: _loaded ? (v) {
+                            setState(() => _shakeMode = v.first);
+                            PlayerSettings.setShakeMode(v.first);
+                          } : null,
+                        ),
+                      ),
+                    ),
+                    if (_shakeMode == 'addTime') ...[
                       const Divider(height: 1, indent: 16, endIndent: 16),
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),

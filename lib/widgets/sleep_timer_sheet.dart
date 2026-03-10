@@ -22,7 +22,7 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> {
   int _tabIndex = 0; // 0 = Timer, 1 = End of Chapter
   double _customMinutes = 30;
   int _customChapters = 1;
-  bool _shakeEnabled = true;
+  String _shakeMode = 'addTime'; // 'off', 'addTime', 'resetTimer'
   int _shakeAddMinutes = 5;
 
   @override
@@ -32,9 +32,16 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> {
   }
 
   Future<void> _loadShakeSettings() async {
-    final shake = await PlayerSettings.getShakeToResetSleep();
+    final mode = await PlayerSettings.getShakeMode();
     final mins = await PlayerSettings.getShakeAddMinutes();
-    if (mounted) setState(() { _shakeEnabled = shake; _shakeAddMinutes = mins; });
+    final timerMins = await PlayerSettings.getSleepTimerMinutes();
+    final timerCh = await PlayerSettings.getSleepTimerChapters();
+    if (mounted) setState(() {
+      _shakeMode = mode;
+      _shakeAddMinutes = mins;
+      _customMinutes = timerMins.toDouble();
+      _customChapters = timerCh;
+    });
   }
 
   @override
@@ -250,6 +257,7 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> {
         style: FilledButton.styleFrom(backgroundColor: accent, foregroundColor: cs.surface,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
         onPressed: () {
+          PlayerSettings.setSleepTimerMinutes(_customMinutes.round());
           SleepTimerService().setTimeSleep(Duration(minutes: _customMinutes.round()));
           Navigator.pop(context);
         },
@@ -289,6 +297,7 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> {
         style: FilledButton.styleFrom(backgroundColor: accent, foregroundColor: cs.surface,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
         onPressed: () {
+          PlayerSettings.setSleepTimerChapters(_customChapters);
           SleepTimerService().setChapterSleep(_customChapters);
           Navigator.pop(context);
         },
@@ -300,26 +309,77 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> {
 
   Widget _buildShakeToggle(Color accent, TextTheme tt) {
     final cs = Theme.of(context).colorScheme;
-    return Row(children: [
-      Icon(Icons.vibration_rounded, size: 18, color: _shakeEnabled ? accent : cs.onSurface.withValues(alpha: 0.24)),
-      const SizedBox(width: 10),
-      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('Shake to add time',
-          style: TextStyle(color: _shakeEnabled ? cs.onSurface.withValues(alpha: 0.7) : cs.onSurfaceVariant, fontSize: 13, fontWeight: FontWeight.w500)),
-        Text(_shakeEnabled
-            ? (_tabIndex == 0 ? 'Adds $_shakeAddMinutes min' : 'Adds 1 chapter')
-            : 'Off',
-          style: TextStyle(color: cs.onSurface.withValues(alpha: 0.3), fontSize: 11)),
-      ])),
+    final isEnabled = _shakeMode != 'off';
+    String subtitle;
+    if (_shakeMode == 'addTime') {
+      subtitle = _tabIndex == 0 ? 'Adds $_shakeAddMinutes min' : 'Adds 1 chapter';
+    } else if (_shakeMode == 'resetTimer') {
+      subtitle = 'Resets to full duration';
+    } else {
+      subtitle = 'Disabled';
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Icon(Icons.vibration_rounded, size: 18, color: isEnabled ? accent : cs.onSurface.withValues(alpha: 0.24)),
+        const SizedBox(width: 10),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Shake', style: TextStyle(color: isEnabled ? cs.onSurface.withValues(alpha: 0.7) : cs.onSurfaceVariant, fontSize: 13, fontWeight: FontWeight.w500)),
+          Text(subtitle, style: TextStyle(color: cs.onSurface.withValues(alpha: 0.3), fontSize: 11)),
+        ])),
+      ]),
+      const SizedBox(height: 10),
       SizedBox(
-        height: 28,
-        child: Switch(
-          value: _shakeEnabled,
-          activeTrackColor: accent,
-          onChanged: (v) {
-            setState(() => _shakeEnabled = v);
-            PlayerSettings.setShakeToResetSleep(v);
+        width: double.infinity,
+        child: SegmentedButton<String>(
+          segments: const [
+            ButtonSegment(value: 'off', label: Text('Off')),
+            ButtonSegment(value: 'addTime', label: Text('Add Time')),
+            ButtonSegment(value: 'resetTimer', label: Text('Reset')),
+          ],
+          selected: {_shakeMode},
+          style: ButtonStyle(
+            visualDensity: VisualDensity.compact,
+            textStyle: WidgetStatePropertyAll(TextStyle(fontSize: 12)),
+          ),
+          onSelectionChanged: (v) {
+            setState(() => _shakeMode = v.first);
+            PlayerSettings.setShakeMode(v.first);
           },
+        ),
+      ),
+      AnimatedOpacity(
+        opacity: _shakeMode == 'addTime' ? 1.0 : 0.0,
+        duration: const Duration(milliseconds: 200),
+        child: IgnorePointer(
+          ignoring: _shakeMode != 'addTime',
+          child: Column(children: [
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Shake adds', style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12)),
+                Text('$_shakeAddMinutes min',
+                  style: TextStyle(fontWeight: FontWeight.w600, color: accent, fontSize: 12)),
+              ],
+            ),
+            SliderTheme(
+              data: SliderThemeData(
+                activeTrackColor: accent,
+                inactiveTrackColor: cs.onSurface.withValues(alpha: 0.1),
+                thumbColor: accent,
+                overlayColor: accent.withValues(alpha: 0.1),
+                trackHeight: 4,
+              ),
+              child: Slider(
+                value: _shakeAddMinutes.toDouble(),
+                min: 1, max: 30, divisions: 29,
+                onChanged: (v) {
+                  setState(() => _shakeAddMinutes = v.round());
+                  PlayerSettings.setShakeAddMinutes(v.round());
+                },
+              ),
+            ),
+          ]),
         ),
       ),
     ]);

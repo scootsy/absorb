@@ -152,11 +152,18 @@ class PlayerSettings {
 
   // ── Sleep timer settings ──
 
-  static Future<bool> getShakeToResetSleep() => _get('shakeToResetSleep', true);
-  static Future<void> setShakeToResetSleep(bool value) => _set('shakeToResetSleep', value);
+  // 'off', 'addTime', 'resetTimer'
+  static Future<String> getShakeMode() => _get('shakeMode', 'addTime');
+  static Future<void> setShakeMode(String value) => _set('shakeMode', value);
 
   static Future<int> getShakeAddMinutes() => _get('shakeAddMinutes', 5);
   static Future<void> setShakeAddMinutes(int minutes) => _set('shakeAddMinutes', minutes);
+
+  static Future<int> getSleepTimerMinutes() => _get('sleepTimerMinutes', 30);
+  static Future<void> setSleepTimerMinutes(int minutes) => _set('sleepTimerMinutes', minutes);
+
+  static Future<int> getSleepTimerChapters() => _get('sleepTimerChapters', 1);
+  static Future<void> setSleepTimerChapters(int chapters) => _set('sleepTimerChapters', chapters);
 
   static Future<bool> getResetSleepOnPause() => _get('resetSleepOnPause', false);
   static Future<void> setResetSleepOnPause(bool value) => _set('resetSleepOnPause', value);

@@ -26,7 +26,7 @@ class BackupService {
       'speedAdjustedTime': await PlayerSettings.getSpeedAdjustedTime(),
       'forwardSkip': await PlayerSettings.getForwardSkip(),
       'backSkip': await PlayerSettings.getBackSkip(),
-      'shakeToResetSleep': await PlayerSettings.getShakeToResetSleep(),
+      'shakeMode': await PlayerSettings.getShakeMode(),
       'shakeAddMinutes': await PlayerSettings.getShakeAddMinutes(),
       'resetSleepOnPause': await PlayerSettings.getResetSleepOnPause(),
       'sleepFadeOut': await PlayerSettings.getSleepFadeOut(),
@@ -164,7 +164,11 @@ class BackupService {
     if (s['speedAdjustedTime'] != null) PlayerSettings.setSpeedAdjustedTime(s['speedAdjustedTime'] as bool);
     if (s['forwardSkip'] != null) PlayerSettings.setForwardSkip(s['forwardSkip'] as int);
     if (s['backSkip'] != null) PlayerSettings.setBackSkip(s['backSkip'] as int);
-    if (s['shakeToResetSleep'] != null) PlayerSettings.setShakeToResetSleep(s['shakeToResetSleep'] as bool);
+    if (s['shakeMode'] != null) PlayerSettings.setShakeMode(s['shakeMode'] as String);
+    // Migrate old bool setting
+    if (s['shakeMode'] == null && s['shakeToResetSleep'] != null) {
+      PlayerSettings.setShakeMode(s['shakeToResetSleep'] as bool ? 'addTime' : 'off');
+    }
     if (s['shakeAddMinutes'] != null) PlayerSettings.setShakeAddMinutes(s['shakeAddMinutes'] as int);
     if (s['resetSleepOnPause'] != null) PlayerSettings.setResetSleepOnPause(s['resetSleepOnPause'] as bool);
     if (s['sleepFadeOut'] != null) PlayerSettings.setSleepFadeOut(s['sleepFadeOut'] as bool);

@@ -298,6 +298,11 @@ class _AuthGateState extends State<AuthGate> {
     final sw = Stopwatch()..start();
     debugPrint('[Init] _initServices started');
 
+    // Initialize user account scope FIRST so all ScopedPrefs reads use the
+    // correct scoped keys. Without this, settings read before init() would
+    // fall back to un-scoped keys and appear as defaults.
+    await UserAccountService().init();
+
     // Start auth restoration immediately — it doesn't depend on audio/cast/
     // download services and must not be blocked by a hanging service init.
     if (mounted) {
@@ -367,7 +372,6 @@ class _AuthGateState extends State<AuthGate> {
     // Initialize download tracker and progress sync
     debugPrint('[Init] remaining services... (${sw.elapsedMilliseconds}ms)');
     try {
-      await UserAccountService().init();
       await ProgressSyncService().init();
       await EqualizerService().init();
       await SleepTimerService().loadAutoSleepSettings();
