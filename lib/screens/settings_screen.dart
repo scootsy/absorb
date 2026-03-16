@@ -48,7 +48,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _resetSleepOnPause = false;
   bool _sleepFadeOut = true;
   int _shakeAddMinutes = 5;
-  String _queueMode = 'off';
+  String _bookQueueMode = 'off';
+  String _podcastQueueMode = 'off';
+  // Returns the more restrictive of the two modes so the merged control
+  // never shows 'Auto' if one type is still 'off' or 'manual'.
+  String get _mergedQueueMode {
+    const order = ['off', 'manual', 'auto_next'];
+    final bi = order.indexOf(_bookQueueMode);
+    final pi = order.indexOf(_podcastQueueMode);
+    return order[(bi < pi ? bi : pi).clamp(0, 2)];
+  }
   bool _queueAutoDownload = false;
   bool _mergeAbsorbingLibraries = false;
   int _maxConcurrentDownloads = 1;
@@ -126,7 +135,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       PlayerSettings.getResetSleepOnPause(),                  // 11
       PlayerSettings.getSleepFadeOut(),                       // 12
       PlayerSettings.getShakeAddMinutes(),                    // 13
-      PlayerSettings.getQueueMode(),                          // 14
+      PlayerSettings.getBookQueueMode(),                      // 14
       PlayerSettings.getQueueAutoDownload(),                  // 15
       PlayerSettings.getMergeAbsorbingLibraries(),            // 16
       PlayerSettings.getMaxConcurrentDownloads(),             // 17
@@ -148,7 +157,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       PlayerSettings.getDisableAudioFocus(),                   // 33
       PlayerSettings.getAutoDownloadOnStream(),                  // 34
       PlayerSettings.getColorSource(),                           // 35
-      PlayerSettings.getStartScreen(),                             // 36
+      PlayerSettings.getStartScreen(),                           // 36
+      PlayerSettings.getPodcastQueueMode(),                      // 37
     ]);
     final s = results[0] as AutoRewindSettings;
     final speed = results[1] as double;
@@ -164,7 +174,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final resetOnPause = results[11] as bool;
     final sleepFade = results[12] as bool;
     final shakeMins = results[13] as int;
-    final queueMode = results[14] as String;
+    final bookQueueMode = results[14] as String;
     final queueAutoDl = results[15] as bool;
     final mergeLibs = results[16] as bool;
     final maxConc = results[17] as int;
@@ -187,6 +197,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final autoDlStream = results[34] as bool;
     final colorSource = results[35] as String;
     final startScreen = results[36] as int;
+    final podcastQueueMode = results[37] as String;
     if (mounted) setState(() {
       _rewindSettings = s;
       _defaultSpeed = speed;
@@ -203,7 +214,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _resetSleepOnPause = resetOnPause;
       _sleepFadeOut = sleepFade;
       _shakeAddMinutes = shakeMins;
-      _queueMode = queueMode;
+      _bookQueueMode = bookQueueMode;
+      _podcastQueueMode = podcastQueueMode;
       _queueAutoDownload = queueAutoDl;
       _mergeAbsorbingLibraries = mergeLibs;
       _maxConcurrentDownloads = maxConc;
@@ -798,28 +810,66 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             child: Icon(Icons.info_outline_rounded, size: 16, color: cs.onSurfaceVariant),
                           ),
                         ]),
-                        const SizedBox(height: 4),
-                        Text(
-                          _queueMode == 'off' ? 'Playback stops when current item finishes'
-                            : _queueMode == 'manual' ? 'Auto-plays next non-finished card in order'
-                            : 'Auto-absorbs next book in series or podcast episode',
-                          style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-                        ),
                         const SizedBox(height: 8),
-                        SizedBox(width: double.infinity, child: SegmentedButton<String>(
-                          segments: const [
-                            ButtonSegment(value: 'off', icon: Icon(Icons.stop_rounded), label: Text('Off')),
-                            ButtonSegment(value: 'manual', icon: Icon(Icons.queue_music_rounded), label: Text('Manual')),
-                            ButtonSegment(value: 'auto_next', icon: Icon(Icons.skip_next_rounded), label: Text('Auto')),
+                        // When libraries are merged, show a single unified control
+                        if (_mergeAbsorbingLibraries) ...[
+                          Text('Playback stops, manual queue, or auto-absorbs next item',
+                            style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                          const SizedBox(height: 8),
+                          SizedBox(width: double.infinity, child: SegmentedButton<String>(
+                            segments: const [
+                              ButtonSegment(value: 'off', icon: Icon(Icons.stop_rounded), label: Text('Off')),
+                              ButtonSegment(value: 'manual', icon: Icon(Icons.queue_music_rounded), label: Text('Manual')),
+                              ButtonSegment(value: 'auto_next', icon: Icon(Icons.skip_next_rounded), label: Text('Auto')),
+                            ],
+                            selected: {_mergedQueueMode},
+                            onSelectionChanged: _loaded ? (s) {
+                              setState(() {
+                                _bookQueueMode = s.first;
+                                _podcastQueueMode = s.first;
+                              });
+                              PlayerSettings.setBookQueueMode(s.first);
+                              PlayerSettings.setPodcastQueueMode(s.first);
+                            } : null,
+                            style: const ButtonStyle(visualDensity: VisualDensity.compact),
+                          )),
+                        ] else ...[
+                          // Separate controls per type
+                          Text('Books', style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant, fontWeight: FontWeight.w600)),
+                          const SizedBox(height: 4),
+                          SizedBox(width: double.infinity, child: SegmentedButton<String>(
+                            segments: const [
+                              ButtonSegment(value: 'off', icon: Icon(Icons.stop_rounded), label: Text('Off')),
+                              ButtonSegment(value: 'manual', icon: Icon(Icons.queue_music_rounded), label: Text('Manual')),
+                              ButtonSegment(value: 'auto_next', icon: Icon(Icons.skip_next_rounded), label: Text('Auto')),
+                            ],
+                            selected: {_bookQueueMode},
+                            onSelectionChanged: _loaded ? (s) {
+                              setState(() => _bookQueueMode = s.first);
+                              PlayerSettings.setBookQueueMode(s.first);
+                            } : null,
+                            style: const ButtonStyle(visualDensity: VisualDensity.compact),
+                          )),
+                          if (lib.libraries.any((l) => l['mediaType'] == 'podcast')) ...[
+                            const SizedBox(height: 8),
+                            Text('Podcasts', style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant, fontWeight: FontWeight.w600)),
+                            const SizedBox(height: 4),
+                            SizedBox(width: double.infinity, child: SegmentedButton<String>(
+                              segments: const [
+                                ButtonSegment(value: 'off', icon: Icon(Icons.stop_rounded), label: Text('Off')),
+                                ButtonSegment(value: 'manual', icon: Icon(Icons.queue_music_rounded), label: Text('Manual')),
+                                ButtonSegment(value: 'auto_next', icon: Icon(Icons.skip_next_rounded), label: Text('Auto')),
+                              ],
+                              selected: {_podcastQueueMode},
+                              onSelectionChanged: _loaded ? (s) {
+                                setState(() => _podcastQueueMode = s.first);
+                                PlayerSettings.setPodcastQueueMode(s.first);
+                              } : null,
+                              style: const ButtonStyle(visualDensity: VisualDensity.compact),
+                            )),
                           ],
-                          selected: {_queueMode},
-                          onSelectionChanged: _loaded ? (s) {
-                            setState(() => _queueMode = s.first);
-                            PlayerSettings.setQueueMode(s.first);
-                          } : null,
-                          style: const ButtonStyle(visualDensity: VisualDensity.compact),
-                        )),
-                        if (_queueMode == 'manual') ...[
+                        ],
+                        if (_bookQueueMode == 'manual' || _podcastQueueMode == 'manual') ...[
                           const SizedBox(height: 4),
                           SwitchListTile(
                             title: const Text('Auto-download queue'),

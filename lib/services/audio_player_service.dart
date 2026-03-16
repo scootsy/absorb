@@ -124,12 +124,32 @@ class PlayerSettings {
   static Future<String> getQueueMode() => _get('queueMode', 'off');
   static Future<void> setQueueMode(String value) => _set('queueMode', value);
 
+  static Future<String> getBookQueueMode() async {
+    final value = await ScopedPrefs.getString('bookQueueMode');
+    return value ?? await getQueueMode();
+  }
+  static Future<void> setBookQueueMode(String value) => _set('bookQueueMode', value);
+
+  static Future<String> getPodcastQueueMode() async {
+    final value = await ScopedPrefs.getString('podcastQueueMode');
+    return value ?? await getQueueMode();
+  }
+  static Future<void> setPodcastQueueMode(String value) => _set('podcastQueueMode', value);
+
   /// One-time migration from the old boolean auto-play settings to queueMode.
   static Future<void> migrateQueueMode() async {
     if (await ScopedPrefs.containsKey('queueMode')) return;
     final autoBook = await ScopedPrefs.getBool('autoPlayNextBook') ?? false;
     final autoPod = await ScopedPrefs.getBool('autoPlayNextPodcast') ?? false;
     await ScopedPrefs.setString('queueMode', (autoBook || autoPod) ? 'auto_next' : 'off');
+  }
+
+  /// One-time migration from the unified queueMode to per-type book/podcast modes.
+  static Future<void> migrateBookPodcastQueueMode() async {
+    if (await ScopedPrefs.containsKey('bookQueueMode')) return;
+    final existing = await getQueueMode();
+    await setBookQueueMode(existing);
+    await setPodcastQueueMode(existing);
   }
 
   // Legacy getters kept for backup service compatibility
@@ -350,6 +370,16 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   );
   AudioPlayerService? _service; // back-reference for auto-rewind
 
+  // Cached skip amounts for notification icon selection (updated when settings change)
+  int _cachedForwardSkip = 30;
+  int _cachedBackSkip = 10;
+
+  // Samsung (One UI) and OnePlus/Oppo/Realme (ColorOS) rearrange media session buttons.
+  static bool get _isReorderingOEM {
+    final m = ApiService.deviceManufacturer.toLowerCase();
+    return m == 'samsung' || m == 'oneplus' || m == 'oppo' || m == 'realme';
+  }
+
   AudioPlayer get player => _player;
 
   void bindService(AudioPlayerService service) => _service = service;
@@ -383,66 +413,47 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   }
 
 
-  // OnePlus/Oppo/Realme (ColorOS) rearrange media session buttons.
-  static bool get _isOnePlusFamily {
-    final m = ApiService.deviceManufacturer.toLowerCase();
-    return m == 'oneplus' || m == 'oppo' || m == 'realme';
-  }
-
-  // Speed presets for Android Auto cycling (matches in-app presets)
-  static const _aaSpeedPresets = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5];
-
   PlaybackState _transformEvent(PlaybackEvent event) {
     final playPause = _player.playing ? MediaControl.pause : MediaControl.play;
 
-    // Speed action first — Android Auto places the first custom action
-    // inline on the left of transport controls. Use per-speed drawables
-    // so the icon shows the actual speed value (7-segment style digits).
-    final speed = _player.speed;
-    final speedLabel = '${speed.toStringAsFixed(2)}x';
-    String speedIcon;
-    if ((speed - 0.75).abs() < 0.01) {
-      speedIcon = 'drawable/ic_speed_075';
-    } else if ((speed - 1.0).abs() < 0.01) {
-      speedIcon = 'drawable/ic_speed_100';
-    } else if ((speed - 1.25).abs() < 0.01) {
-      speedIcon = 'drawable/ic_speed_125';
-    } else if ((speed - 1.5).abs() < 0.01) {
-      speedIcon = 'drawable/ic_speed_150';
-    } else if ((speed - 1.75).abs() < 0.01) {
-      speedIcon = 'drawable/ic_speed_175';
-    } else if ((speed - 2.0).abs() < 0.01) {
-      speedIcon = 'drawable/ic_speed_200';
-    } else if ((speed - 2.5).abs() < 0.01) {
-      speedIcon = 'drawable/ic_speed_250';
-    } else {
-      speedIcon = 'drawable/ic_speed_100'; // Safe fallback
-    }
-    final speedAction = MediaControl.custom(
-      androidIcon: speedIcon,
-      label: speedLabel,
-      name: 'cycleSpeed',
+    final rewindControl = MediaControl(
+      androidIcon: 'drawable/ic_skip_back',
+      label: 'Back ${_cachedBackSkip}s',
+      action: MediaAction.rewind,
+    );
+    final fastForwardControl = MediaControl(
+      androidIcon: 'drawable/ic_skip_forward',
+      label: 'Forward ${_cachedForwardSkip}s',
+      action: MediaAction.fastForward,
     );
 
-    // Build the controls list.  On most devices, AA places custom actions
-    // in alternating slots outward from play/pause, giving the visual order
-    // [speed][rw][play][ff] when transport comes first.
-    //
-    // OnePlus/Oppo/Realme (ColorOS) rearrange media buttons:
-    //   API < 33  — notification renders the entire row in reverse, so
-    //               send the mirror image.
-    //   API >= 33 — MediaSession custom-action slot placement differs,
-    //               so send controls in the desired visual order directly.
-    // Desired visual order on OnePlus:  speed | rw | play/pause | ff
+    // Chapter navigation controls — use widget icons (no tint attr, white fill)
+    final prevChapterControl = MediaControl.custom(
+      androidIcon: 'drawable/ic_widget_prev_chapter',
+      label: 'Previous chapter',
+      name: 'previousChapter',
+    );
+    final nextChapterControl = MediaControl.custom(
+      androidIcon: 'drawable/ic_widget_next_chapter',
+      label: 'Next chapter',
+      name: 'nextChapter',
+    );
+
+    // Samsung (One UI) rearranges our 5-button array: it displays indices
+    // [3, 0, 2, 1, 4] from our input.  Send the inverse permutation so the
+    // visual result is prevChapter | skipBack | play/pause | skipForward | nextChapter.
+    // Samsung-specific input: [rewind, fastForward, playPause, prevChapter, nextChapter]
+    // → Samsung displays: [fastForward→pos0… wait, inverse] → correct visual order.
     final List<MediaControl> controls;
-    if (_isOnePlusFamily) {
-      if (ApiService.deviceSdkInt >= 33) {
-        controls = [speedAction, MediaControl.rewind, playPause, MediaControl.fastForward];
-      } else {
-        controls = [MediaControl.fastForward, playPause, MediaControl.rewind, speedAction];
-      }
+    final List<int> compactIndices;
+    if (_isReorderingOEM) {
+      controls = [rewindControl, fastForwardControl, playPause, prevChapterControl, nextChapterControl];
+      // Compact: rewind(0), play/pause(2), fastForward(1)
+      compactIndices = const [0, 2, 1];
     } else {
-      controls = [MediaControl.rewind, playPause, MediaControl.fastForward, speedAction];
+      // Standard: prevChapter | skipBack | play/pause | skipForward | nextChapter
+      controls = [prevChapterControl, rewindControl, playPause, fastForwardControl, nextChapterControl];
+      compactIndices = const [1, 2, 3];
     }
 
     return PlaybackState(
@@ -453,9 +464,7 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
         MediaAction.seekBackward,
         MediaAction.skipToQueueItem,
       },
-      // Notification compact: indices into nativeActions (custom actions are
-      // separated out on the platform side, so standard controls are always 0-2).
-      androidCompactActionIndices: const [0, 1, 2],
+      androidCompactActionIndices: compactIndices,
       processingState: const {
         ProcessingState.idle: AudioProcessingState.idle,
         ProcessingState.loading: AudioProcessingState.loading,
@@ -684,17 +693,6 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
         break;
       case 'previousChapter':
         if (_service != null) await _service!.skipToPreviousChapter();
-        break;
-      case 'cycleSpeed':
-        if (_service != null) {
-          final current = _service!.speed;
-          // Find next preset above current speed, or wrap to first
-          final next = _aaSpeedPresets.cast<double>().firstWhere(
-            (s) => s > current + 0.01,
-            orElse: () => _aaSpeedPresets.first,
-          );
-          await _service!.setSpeed(next);
-        }
         break;
     }
   }
@@ -989,6 +987,19 @@ class AudioPlayerService extends ChangeNotifier {
         _handler?.refreshPlaybackState();
       }
     });
+    // Update cached skip amounts so notification icons stay in sync
+    PlayerSettings.getForwardSkip().then((v) {
+      if (_handler != null && v != _handler!._cachedForwardSkip) {
+        _handler!._cachedForwardSkip = v;
+        _handler!.refreshPlaybackState();
+      }
+    });
+    PlayerSettings.getBackSkip().then((v) {
+      if (_handler != null && v != _handler!._cachedBackSkip) {
+        _handler!._cachedBackSkip = v;
+        _handler!.refreshPlaybackState();
+      }
+    });
   }
 
   /// The last seek target in seconds (absolute book position).
@@ -1179,6 +1190,9 @@ class AudioPlayerService extends ChangeNotifier {
       );
       // Bind service so handler routes play/pause through service (for auto-rewind)
       _handler!.bindService(_instance);
+      // Initialize cached skip amounts so notification icons show the correct values
+      _handler!._cachedForwardSkip = fwdSkip;
+      _handler!._cachedBackSkip = backSkip;
       debugPrint('[Player] AudioService initialized');
       // Configure streaming cache if enabled
       final cacheSizeMb = await PlayerSettings.getStreamingCacheSizeMb();
@@ -1274,7 +1288,20 @@ class AudioPlayerService extends ChangeNotifier {
       return;
     }
 
-    await session.configure(const AudioSessionConfiguration.speech());
+    await session.configure(const AudioSessionConfiguration(
+      // iOS: playback category with spokenAudio mode (auto-pauses for other audio)
+      avAudioSessionCategory: AVAudioSessionCategory.playback,
+      avAudioSessionMode: AVAudioSessionMode.spokenAudio,
+      avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.duckOthers,
+      // Android: use music content type to avoid speech-specific volume normalization
+      // that makes audiobooks quieter than music apps on Pixel and other devices
+      androidAudioAttributes: AndroidAudioAttributes(
+        contentType: AndroidAudioContentType.music,
+        usage: AndroidAudioUsage.media,
+      ),
+      androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
+      androidWillPauseWhenDucked: true,
+    ));
     await session.setActive(true);
 
     _interruptSub?.cancel();
@@ -1660,6 +1687,7 @@ class AudioPlayerService extends ChangeNotifier {
       if (startTime > 0) {
         await _seekAbsolute(startTime);
       }
+      clearSeekTarget(); // Seek done; let position events flow immediately
 
       _subscribeTrackIndex();
       final initChapter = _initChapterInfo(startTime);
@@ -1779,6 +1807,7 @@ class AudioPlayerService extends ChangeNotifier {
       if (startTime > 0) {
         await _seekAbsolute(startTime);
       }
+      clearSeekTarget(); // Seek done; let position events flow immediately
 
       _subscribeTrackIndex();
       final initChapter = _initChapterInfo(startTime);

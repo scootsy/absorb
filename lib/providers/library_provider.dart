@@ -808,6 +808,13 @@ class LibraryProvider extends ChangeNotifier {
         }
       }
       notifyListeners();
+    } else {
+      // Partial payload (e.g. mark-as-finished from web UI) — debounce a
+      // full progress refresh so episode sheets update without a manual pull.
+      _progressRefreshDebounce?.cancel();
+      _progressRefreshDebounce = Timer(const Duration(milliseconds: 800), () {
+        refreshProgressShelves(force: true, reason: 'user-updated');
+      });
     }
   }
 
@@ -1787,14 +1794,41 @@ class LibraryProvider extends ChangeNotifier {
 
     // Auto-play the next book in series if auto_next mode is enabled.
     if (newContinueSeriesKey != null && _api != null) {
-      PlayerSettings.getQueueMode().then((mode) {
+      PlayerSettings.getBookQueueMode().then((mode) {
         if (mode != 'auto_next') return;
         // Don't auto-play if BT/headphones just disconnected — the server
         // refresh is async and may return after the user left the car.
         if (AudioPlayerService.wasNoisyPause) return;
         // Skip if local auto-advance already started playback
         if (AudioPlayerService().isPlaying) return;
-        final cached = _absorbingItemCache[newContinueSeriesKey];
+
+        // The server's continue-series skips partially-read books (they appear
+        // in continue-listening instead). Find the actual lowest-seq unfinished
+        // book in the same series so we don't skip over in-progress books.
+        final finishedData = _lastFinishedItemId != null
+            ? _itemDataWithSeries(_lastFinishedItemId!)
+            : null;
+        final (finSeriesId, finSeq) =
+            finishedData != null ? _extractSeries(finishedData) : (null, null);
+
+        String actualNextKey = newContinueSeriesKey!;
+        if (finSeriesId != null && finSeq != null) {
+          double lowestSeq = double.infinity;
+          for (final key in _absorbingBookIds) {
+            if (key.length > 36) continue; // skip podcast episodes
+            if (isItemFinishedByKey(key)) continue;
+            final data = _absorbingItemCache[key];
+            if (data == null) continue;
+            final (sid, seq) = _extractSeries(data);
+            if (sid != finSeriesId || seq == null || seq <= finSeq) continue;
+            if (seq < lowestSeq) {
+              lowestSeq = seq;
+              actualNextKey = key;
+            }
+          }
+        }
+
+        final cached = _absorbingItemCache[actualNextKey];
         if (cached == null) return;
         final media = cached['media'] as Map<String, dynamic>? ?? {};
         final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
@@ -1804,10 +1838,10 @@ class LibraryProvider extends ChangeNotifier {
         final chapters = media['chapters'] as List<dynamic>? ?? [];
         AudioPlayerService().playItem(
           api: _api!,
-          itemId: newContinueSeriesKey!,
+          itemId: actualNextKey,
           title: title,
           author: author,
-          coverUrl: getCoverUrl(newContinueSeriesKey),
+          coverUrl: getCoverUrl(actualNextKey),
           totalDuration: duration,
           chapters: chapters,
         );
@@ -2095,8 +2129,12 @@ class LibraryProvider extends ChangeNotifier {
     // then the server refresh still runs in the background when online.
     // Skip when user manually marks an item finished (not natural playback completion).
     if (!skipAutoAdvance) {
-      PlayerSettings.getQueueMode().then((mode) {
-        debugPrint('[AutoAdvance] queueMode=$mode for finished item $itemId');
+      final isPodcast = itemId.length > 36;
+      final modeFuture = isPodcast
+          ? PlayerSettings.getPodcastQueueMode()
+          : PlayerSettings.getBookQueueMode();
+      modeFuture.then((mode) {
+        debugPrint('[AutoAdvance] queueMode=$mode (${isPodcast ? 'podcast' : 'book'}) for finished item $itemId');
         if (mode == 'manual') {
           _manualQueueAdvance(itemId);
         } else if (mode == 'auto_next') {
@@ -2134,8 +2172,9 @@ class LibraryProvider extends ChangeNotifier {
 
     // Auto-delete for queue-based downloads (manual queue + queueAutoDownload)
     if (DownloadService().isDownloaded(itemId)) {
+      final isPodcastItem = itemId.length > 36;
       Future.wait([
-        PlayerSettings.getQueueMode(),
+        isPodcastItem ? PlayerSettings.getPodcastQueueMode() : PlayerSettings.getBookQueueMode(),
         PlayerSettings.getQueueAutoDownload(),
         PlayerSettings.getRollingDownloadDeleteFinished(),
       ]).then((results) {
@@ -2172,7 +2211,7 @@ class LibraryProvider extends ChangeNotifier {
     if (isCompound && !skipRefresh && _api != null && !isOffline) {
       final showId = itemId.substring(0, 36);
       final episodeId = itemId.substring(37);
-      PlayerSettings.getQueueMode().then((queueMode) {
+      PlayerSettings.getPodcastQueueMode().then((queueMode) {
         if (queueMode == 'auto_next') {
           _addNextPodcastEpisode(showId, episodeId, itemId).then((_) {
             if (_selectedLibraryId != null && !isOffline) {
@@ -2200,7 +2239,8 @@ class LibraryProvider extends ChangeNotifier {
         _selectedLibraryId != null &&
         !isOffline) {
       // Brief delay so the server has time to populate continue-series
-      Future.delayed(const Duration(milliseconds: 500), () {
+      Future.delayed(const Duration(milliseconds: 500), () async {
+        await _refreshProgress(); // refresh _progressMap so stale isFinished flags don't block auto-advance
         refreshProgressShelves(force: true, reason: 'item-finished');
         PlayerSettings.getWhenFinished().then((mode) {
           if (mode == 'auto_remove') removeFromAbsorbing(itemId);
@@ -2222,6 +2262,7 @@ class LibraryProvider extends ChangeNotifier {
     // Brief delay so the server has time to register the finished state
     await Future.delayed(const Duration(milliseconds: 500));
     try {
+      if (_api == null) return;
       final fullItem = await _api!.getLibraryItem(showId);
       if (fullItem == null) return;
       final media = fullItem['media'] as Map<String, dynamic>? ?? {};
@@ -2229,11 +2270,16 @@ class LibraryProvider extends ChangeNotifier {
           List<dynamic>.from(media['episodes'] as List<dynamic>? ?? []);
       if (episodes.isEmpty) return;
 
-      // Sort oldest-first (ascending publishedAt) so "next" = index + 1
+      // Check per-show advance direction
+      final prefs = await SharedPreferences.getInstance();
+      final advanceNewestFirst =
+          (prefs.getString('podcast_advance_dir_$showId') ?? 'oldest_first') == 'newest_first';
+
+      // Sort by publishedAt; direction determines which episode comes "next"
       episodes.sort((a, b) {
         final aTime = (a['publishedAt'] as num?)?.toInt() ?? 0;
         final bTime = (b['publishedAt'] as num?)?.toInt() ?? 0;
-        return aTime.compareTo(bTime);
+        return advanceNewestFirst ? bTime.compareTo(aTime) : aTime.compareTo(bTime);
       });
 
       final currentIdx = episodes.indexWhere(
@@ -2243,13 +2289,39 @@ class LibraryProvider extends ChangeNotifier {
       );
       if (currentIdx < 0 || currentIdx >= episodes.length - 1) return;
 
-      final nextEp = episodes[currentIdx + 1] as Map<String, dynamic>;
-      final nextEpId = nextEp['id'] as String?;
-      if (nextEpId == null) return;
-
-      final nextKey = '$showId-$nextEpId';
-      if (_manualAbsorbRemoves.contains(nextKey)) return;
-      if (_progressMap[nextKey]?['isFinished'] == true) return;
+      // Find the first unfinished episode after the current one (in sorted order)
+      Map<String, dynamic>? nextEp;
+      String? nextEpId;
+      String? nextKey;
+      int serverChecks = 0;
+      bool trustCache = false;
+      for (int i = currentIdx + 1; i < episodes.length; i++) {
+        final candidate = episodes[i] as Map<String, dynamic>;
+        final candidateId = candidate['id'] as String?;
+        if (candidateId == null) continue;
+        final candidateKey = '$showId-$candidateId';
+        final cachedFinished = _progressMap[candidateKey]?['isFinished'] == true;
+        if (cachedFinished) {
+          if (trustCache) continue;
+          // _progressMap can be stale; verify with server before skipping.
+          // Cap checks to avoid hammering the server for large backlogs.
+          final freshProg = await _api?.getEpisodeProgress(showId, candidateId);
+          serverChecks++;
+          if (freshProg?['isFinished'] == true) {
+            if (serverChecks >= 5) trustCache = true;
+            continue;
+          }
+          if (freshProg != null) {
+            _progressMap[candidateKey] = freshProg;
+            _localProgressOverrides.remove(candidateKey);
+          }
+        }
+        nextEp = candidate;
+        nextEpId = candidateId;
+        nextKey = candidateKey;
+        break;
+      }
+      if (nextEp == null || nextEpId == null || nextKey == null) return;
 
       // Build a synthetic cache entry from the show data
       final showData =
@@ -2263,6 +2335,7 @@ class LibraryProvider extends ChangeNotifier {
       syntheticEntry['_absorbingKey'] = nextKey;
 
       // Mark as manually added so pruning won't remove it (no progress yet)
+      _manualAbsorbRemoves.remove(nextKey);
       _manualAbsorbAdds.add(nextKey);
       _absorbingIdsAdd(nextKey, afterKey: finishedKey);
       _absorbingItemCache[nextKey] = syntheticEntry;
@@ -2271,7 +2344,7 @@ class LibraryProvider extends ChangeNotifier {
 
       // Auto-play the next episode if auto_next mode is enabled.
       // Skip if local auto-advance already started playback.
-      if ((await PlayerSettings.getQueueMode()) == 'auto_next' &&
+      if ((await PlayerSettings.getPodcastQueueMode()) == 'auto_next' &&
           _api != null &&
           !AudioPlayerService().isPlaying) {
         final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
@@ -2281,6 +2354,10 @@ class LibraryProvider extends ChangeNotifier {
             (nextEp['audioFile'] as Map<String, dynamic>?)?['duration']
                 as double? ??
             0;
+        // Resume from saved position if the episode was partially listened to.
+        final savedProgress = _progressMap[nextKey];
+        final startTime =
+            (savedProgress?['currentTime'] as num?)?.toDouble() ?? 0.0;
         AudioPlayerService().playItem(
           api: _api!,
           itemId: showId,
@@ -2291,9 +2368,12 @@ class LibraryProvider extends ChangeNotifier {
           chapters: [],
           episodeId: nextEpId,
           episodeTitle: nextEp['title'] as String?,
+          startTime: startTime,
         );
       }
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('[AutoAdvance] _addNextPodcastEpisode error: $e\n$st');
+    }
   }
 
   /// Manual queue auto-advance: scan absorbing list from after the finished
@@ -2430,7 +2510,7 @@ class LibraryProvider extends ChangeNotifier {
   }
 
   void _autoAdvanceOfflineBook(String finishedBookId) {
-    PlayerSettings.getQueueMode().then((mode) {
+    PlayerSettings.getBookQueueMode().then((mode) {
       if (mode != 'auto_next') return;
       if (AudioPlayerService.wasNoisyPause) return;
 
@@ -2483,12 +2563,17 @@ class LibraryProvider extends ChangeNotifier {
   }
 
   void _autoAdvanceOfflinePodcast(String finishedKey) {
-    PlayerSettings.getQueueMode().then((mode) {
+    PlayerSettings.getPodcastQueueMode().then((mode) async {
       if (mode != 'auto_next') return;
       if (AudioPlayerService.wasNoisyPause) return;
 
       final showId = finishedKey.substring(0, 36);
       final finishedEpId = finishedKey.substring(37);
+
+      // Check per-show advance direction
+      final prefs = await SharedPreferences.getInstance();
+      final advanceNewestFirst =
+          (prefs.getString('podcast_advance_dir_$showId') ?? 'oldest_first') == 'newest_first';
 
       // Find all downloaded episodes for this show from the cache
       final dl = DownloadService();
@@ -2512,10 +2597,16 @@ class LibraryProvider extends ChangeNotifier {
       }
       if (finishedTimestamp == null || episodes.isEmpty) return;
 
-      // Find the next episode after the finished one (ascending publishedAt)
+      // Find the next episode in the configured direction
       final sorted = episodes.keys.toList()..sort();
-      final nextTimestamp =
-          sorted.where((t) => t > finishedTimestamp!).firstOrNull;
+      final int? nextTimestamp;
+      if (advanceNewestFirst) {
+        // newest-first: pick the most recent episode published before the current one
+        nextTimestamp = sorted.where((t) => t < finishedTimestamp!).lastOrNull;
+      } else {
+        // oldest-first: pick the oldest episode published after the current one
+        nextTimestamp = sorted.where((t) => t > finishedTimestamp!).firstOrNull;
+      }
       if (nextTimestamp == null) return;
 
       final nextEntry = episodes[nextTimestamp]!;
@@ -2638,7 +2729,10 @@ class LibraryProvider extends ChangeNotifier {
   /// queue mode is active and queueAutoDownload is enabled.
   void _checkQueueAutoDownloads(String playingKey) async {
     if (_api == null || isOffline) return;
-    final queueMode = await PlayerSettings.getQueueMode();
+    final isPodcastKey = playingKey.length > 36;
+    final queueMode = isPodcastKey
+        ? await PlayerSettings.getPodcastQueueMode()
+        : await PlayerSettings.getBookQueueMode();
     if (queueMode != 'manual') return;
     final enabled = await PlayerSettings.getQueueAutoDownload();
     if (!enabled) return;

@@ -18,6 +18,8 @@ class BackupService {
       'defaultSpeed': await PlayerSettings.getDefaultSpeed(),
       'wifiOnlyDownloads': await PlayerSettings.getWifiOnlyDownloads(),
       'queueMode': await PlayerSettings.getQueueMode(),
+      'bookQueueMode': await PlayerSettings.getBookQueueMode(),
+      'podcastQueueMode': await PlayerSettings.getPodcastQueueMode(),
       // Legacy keys for backward compat with older app versions
       'autoPlayNextBook': (await PlayerSettings.getQueueMode()) == 'auto_next',
       'autoPlayNextPodcast': (await PlayerSettings.getQueueMode()) == 'auto_next',
@@ -188,6 +190,8 @@ class BackupService {
       final autoPod = s['autoPlayNextPodcast'] as bool? ?? false;
       PlayerSettings.setQueueMode((autoBook || autoPod) ? 'auto_next' : 'off');
     }
+    if (s['bookQueueMode'] != null) PlayerSettings.setBookQueueMode(s['bookQueueMode'] as String);
+    if (s['podcastQueueMode'] != null) PlayerSettings.setPodcastQueueMode(s['podcastQueueMode'] as String);
     if (s['whenFinished'] != null) PlayerSettings.setWhenFinished(s['whenFinished'] as String);
     if (s['showBookSlider'] != null) PlayerSettings.setShowBookSlider(s['showBookSlider'] as bool);
     if (s['speedAdjustedTime'] != null) PlayerSettings.setSpeedAdjustedTime(s['speedAdjustedTime'] as bool);

@@ -402,6 +402,8 @@ class _AuthGateState extends State<AuthGate> {
     // Migrate old auto-play booleans → unified queueMode (one-time, no-op after first run)
     debugPrint('[Init] migrateQueueMode... (${sw.elapsedMilliseconds}ms)');
     await PlayerSettings.migrateQueueMode();
+    // Migrate unified queueMode → per-type book/podcast modes (one-time)
+    await PlayerSettings.migrateBookPodcastQueueMode();
 
     // Load device info for server identification
     debugPrint('[Init] device info... (${sw.elapsedMilliseconds}ms)');
