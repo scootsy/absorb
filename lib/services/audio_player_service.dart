@@ -286,6 +286,11 @@ class PlayerSettings {
   static Future<bool> getDisableAudioFocus() => _get('disableAudioFocus', false);
   static Future<void> setDisableAudioFocus(bool value) => _set('disableAudioFocus', value);
 
+  // ── Self-signed certificates ──
+
+  static Future<bool> getTrustAllCerts() => _get('trustAllCerts', false);
+  static Future<void> setTrustAllCerts(bool value) => _set('trustAllCerts', value);
+
   // ── Local server ──
 
   static Future<bool> getLocalServerEnabled() => _get('localServerEnabled', false);
@@ -2073,10 +2078,9 @@ class AudioPlayerService extends ChangeNotifier {
       final posSec = pos.inMilliseconds / 1000.0;
       if (posSec <= 0) return;
       await _saveProgressLocal(pos);
-      // Sync to server through the active session
-      if (!_isOfflineMode && _playbackSessionId != null) {
-        _syncToServer(pos);
-      }
+      // Server sync is handled by the positionStream listener every 60s.
+      // This timer only does local saves as a safety net for when Android
+      // throttles the position stream in the background.
     });
 
     // Attach equalizer to current audio session
@@ -2404,13 +2408,29 @@ class AudioPlayerService extends ChangeNotifier {
       _progressSync.syncToServer(api: _api!, itemId: syncKey);
     }
 
-    // Auto-stop foreground service after 10 min of being paused to save battery.
-    // The service keeps running briefly to survive notification interruptions,
-    // but we don't want it alive indefinitely draining battery overnight.
+    // After 10 min paused, close the server session and release audio focus
+    // to save battery/bandwidth. The player stays paused (not stopped) so the
+    // MediaSession remains active and WearOS/notification controls keep working.
     _pauseStopTimer?.cancel();
-    _pauseStopTimer = Timer(_pauseStopTimeout, () {
-      debugPrint('[Player] Pause timeout - stopping foreground service to save battery');
-      stop();
+    _pauseStopTimer = Timer(_pauseStopTimeout, () async {
+      debugPrint('[Player] Pause timeout - releasing server session and audio focus');
+      // Close server playback session
+      if (_playbackSessionId != null && _api != null) {
+        try {
+          await _syncToServer(position);
+          await _api!.closePlaybackSession(_playbackSessionId!);
+          debugPrint('[Player] Server session closed');
+        } catch (_) {}
+        _playbackSessionId = null;
+      }
+      // Release audio focus so other apps can use it
+      if (!_audioFocusDisabled) {
+        try { (await AudioSession.instance).setActive(false); } catch (_) {}
+      }
+      // Cancel sleep timer
+      if (SleepTimerService().isActive) {
+        SleepTimerService().cancel();
+      }
     });
   }
 
