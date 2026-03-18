@@ -419,7 +419,7 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   }
 
   /// Subscribe to the player's playback event stream and forward state to
-  /// the system MediaSession. If the stream errors (e.g. network timeout),
+  /// the system MediaSession. If the stream errors or completes unexpectedly,
   /// re-subscribe so system media controls stay alive.
   void _subscribePlaybackEvents() {
     _player.playbackEventStream.map(_transformEvent).listen(
@@ -429,6 +429,11 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
         // Push the last known good state so the notification doesn't go stale
         refreshPlaybackState();
         // Re-subscribe so future events still reach the MediaSession
+        _subscribePlaybackEvents();
+      },
+      onDone: () {
+        debugPrint('[Player] playbackEvent stream completed - re-subscribing');
+        refreshPlaybackState();
         _subscribePlaybackEvents();
       },
     );
@@ -513,10 +518,11 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
 
   @override
   Future<void> play() async {
-    debugPrint('[Handler] play() called — routing to service');
+    debugPrint('[Handler] play() called — routing to service (state=${_player.processingState.name})');
     if (_service != null) {
       await _service!.play();
     } else {
+      debugPrint('[Handler] play() — no service ref, using player directly');
       await _player.play();
     }
   }
@@ -1947,6 +1953,7 @@ class AudioPlayerService extends ChangeNotifier {
     _eqSessionSub = null;
     _streamRetryCount = 0;
     _retryInProgress = false;
+    _noisyPause = false;
     notifyListeners();
   }
 
