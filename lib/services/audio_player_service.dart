@@ -2293,6 +2293,7 @@ class AudioPlayerService extends ChangeNotifier {
         currentTime: _totalDuration,
         duration: _totalDuration,
         speed: speed,
+        isFinished: true,
       );
     }
 

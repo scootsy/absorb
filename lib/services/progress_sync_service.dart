@@ -41,12 +41,19 @@ class ProgressSyncService {
     required double currentTime,
     required double duration,
     required double speed,
+    bool? isFinished,
   }) async {
+    // Preserve existing isFinished flag if not explicitly provided
+    if (isFinished == null) {
+      final existing = await getLocal(itemId);
+      isFinished = existing?['isFinished'] as bool? ?? false;
+    }
     final data = {
       'itemId': itemId,
       'currentTime': currentTime,
       'duration': duration,
       'speed': speed,
+      'isFinished': isFinished,
       'timestamp': DateTime.now().millisecondsSinceEpoch,
     };
     await ScopedPrefs.setString('progress_$itemId', jsonEncode(data));
@@ -63,12 +70,14 @@ class ProgressSyncService {
     required String itemId,
     required double currentTime,
     required double duration,
+    bool isFinished = false,
   }) async {
     final data = {
       'itemId': itemId,
       'currentTime': currentTime,
       'duration': duration,
       'speed': 1.0,
+      'isFinished': isFinished,
       'timestamp': 0,
     };
     await ScopedPrefs.setString('progress_$itemId', jsonEncode(data));
@@ -124,7 +133,8 @@ class ProgressSyncService {
 
     final currentTime = (data['currentTime'] as num?)?.toDouble() ?? 0;
     final duration = (data['duration'] as num?)?.toDouble() ?? 0;
-    debugPrint('[Sync] Syncing $itemId: currentTime=$currentTime, duration=$duration, sessionId=$sessionId');
+    final isFinished = data['isFinished'] as bool? ?? false;
+    debugPrint('[Sync] Syncing $itemId: currentTime=$currentTime, duration=$duration, isFinished=$isFinished, sessionId=$sessionId');
 
     try {
       if (sessionId != null) {
@@ -138,6 +148,7 @@ class ProgressSyncService {
           itemId,
           currentTime: currentTime,
           duration: duration,
+          isFinished: isFinished,
         );
       }
 
@@ -204,6 +215,7 @@ class ProgressSyncService {
                 itemId: itemId,
                 currentTime: serverTime,
                 duration: localDuration,
+                isFinished: serverProgress['isFinished'] as bool? ?? false,
               );
               final updated = await ScopedPrefs.getStringList('pending_syncs');
               updated.remove(itemId);
@@ -221,17 +233,20 @@ class ProgressSyncService {
           final apiItemId = isCompound ? itemId.substring(0, 36) : itemId;
           final episodeId = isCompound ? itemId.substring(37) : null;
 
+          final localFinished = data['isFinished'] as bool? ?? false;
           if (episodeId != null) {
             await api.updateEpisodeProgress(
               apiItemId, episodeId,
               currentTime: localTime,
               duration: localDuration,
+              isFinished: localFinished,
             );
           } else {
             await api.updateProgress(
               apiItemId,
               currentTime: localTime,
               duration: localDuration,
+              isFinished: localFinished,
             );
           }
           debugPrint('[Sync] Flushed $itemId via progress update: ${localTime}s');

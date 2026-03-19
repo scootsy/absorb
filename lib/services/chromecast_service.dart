@@ -662,6 +662,7 @@ class ChromecastService extends ChangeNotifier {
         currentTime: duration,
         duration: duration,
         speed: 1.0,
+        isFinished: true,
       );
     }
 

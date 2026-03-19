@@ -140,6 +140,7 @@ class LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMi
   }
 
   void _onLibraryProviderChanged() {
+    if (!mounted) return;
     final lib = context.read<LibraryProvider>();
     if (lib.selectedLibraryId != _lastLibraryId && lib.selectedLibraryId != null) {
       _lastLibraryId = lib.selectedLibraryId;

@@ -452,54 +452,28 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
             AbsorbPageHeader(
               title: 'Absorbing',
               padding: const EdgeInsets.fromLTRB(20, 12, 12, 0),
-              actions: [
-                // Offline mode toggle
-                GestureDetector(
-                  onTap: () {
-                    final newVal = !lib.isManualOffline;
-                    lib.setManualOffline(newVal);
-                    if (newVal) {
-                      // Only stop playback if the current item isn't downloaded
-                      final dl = DownloadService();
-                      final itemId = _player.currentItemId;
-                      final epId = _player.currentEpisodeId;
-                      final dlKey = epId != null && itemId != null
-                          ? '$itemId-$epId'
-                          : itemId;
-                      if (dlKey == null || !dl.isDownloaded(dlKey)) {
-                        _stopAndRefresh(lib);
-                      }
+              trailing: GestureDetector(
+                onTap: () {
+                  final newVal = !lib.isManualOffline;
+                  lib.setManualOffline(newVal);
+                  if (newVal) {
+                    final dl = DownloadService();
+                    final itemId = _player.currentItemId;
+                    final epId = _player.currentEpisodeId;
+                    final dlKey = epId != null && itemId != null
+                        ? '$itemId-$epId'
+                        : itemId;
+                    if (dlKey == null || !dl.isDownloaded(dlKey)) {
+                      _stopAndRefresh(lib);
                     }
-                  },
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 300),
-                    curve: Curves.easeOutCubic,
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: effectiveOffline ? Colors.orange.withValues(alpha: 0.15) : subtleBg,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: effectiveOffline ? Colors.orange.withValues(alpha: 0.3) : subtleBorder),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          effectiveOffline ? Icons.airplanemode_active_rounded : Icons.airplanemode_inactive_rounded,
-                          size: 14, color: effectiveOffline ? Colors.orange : muted,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          effectiveOffline ? 'Offline' : 'Online',
-                          style: TextStyle(
-                            color: effectiveOffline ? Colors.orange : muted,
-                            fontSize: 11, fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  }
+                },
+                child: Icon(
+                  effectiveOffline ? Icons.cloud_off_rounded : Icons.cloud_done_rounded,
+                  size: 16, color: effectiveOffline ? Colors.orange : Colors.green,
                 ),
-                const SizedBox(width: 8),
+              ),
+              actions: [
                 // Stop button (visible when playing)
                 if (_player.hasBook)
                   GestureDetector(

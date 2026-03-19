@@ -91,22 +91,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
   GlobalKey _keyFor(String section) => _sectionKeys.putIfAbsent(section, () => GlobalKey());
 
   void _onSectionExpanded(String section, bool expanded) {
-    setState(() {
-      if (expanded) {
-        _expandedSection = section;
-      } else if (_expandedSection == section) {
-        _expandedSection = null;
-      }
-    });
-    if (expanded) {
-      // Wait for the collapse/expand animations to finish before scrolling
-      Future.delayed(const Duration(milliseconds: 350), () {
-        final ctx = _keyFor(section).currentContext;
-        if (ctx != null && mounted) {
-          Scrollable.ensureVisible(ctx, duration: const Duration(milliseconds: 250), curve: Curves.easeOut, alignment: 0.3);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() {
+        if (expanded) {
+          _expandedSection = section;
+        } else if (_expandedSection == section) {
+          _expandedSection = null;
         }
       });
-    }
+      if (expanded) {
+        Future.delayed(const Duration(milliseconds: 350), () {
+          final ctx = _keyFor(section).currentContext;
+          if (ctx != null && mounted) {
+            Scrollable.ensureVisible(ctx, duration: const Duration(milliseconds: 250), curve: Curves.easeOut, alignment: 0.3);
+          }
+        });
+      }
+    });
   }
 
   @override
