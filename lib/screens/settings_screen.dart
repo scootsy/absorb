@@ -21,7 +21,7 @@ import '../screens/app_shell.dart';
 import '../screens/admin_screen.dart';
 import '../screens/downloads_screen.dart';
 import '../screens/bookmarks_screen.dart';
-import '../main.dart' show applyThemeMode, applyTrustAllCerts, oledNotifier, snappyTransitionsNotifier, colorSourceNotifier;
+import '../main.dart' show applyThemeMode, applyTrustAllCerts, oledNotifier, snappyTransitionsNotifier;
 import '../widgets/absorb_page_header.dart';
 import '../widgets/absorb_slider.dart';
 
@@ -70,7 +70,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _rectangleCovers = false;
   bool _coverPlayButton = false;
   String _themeMode = 'dark';
-  String _colorSource = 'wallpaper';
   int _startScreen = 2;
   int _streamingCacheSizeMb = 0;
   bool _localServerEnabled = false;
@@ -160,7 +159,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       PlayerSettings.getLocalServerUrl(),                      // 32
       PlayerSettings.getDisableAudioFocus(),                   // 33
       PlayerSettings.getAutoDownloadOnStream(),                  // 34
-      PlayerSettings.getColorSource(),                           // 35
       PlayerSettings.getStartScreen(),                           // 36
       PlayerSettings.getPodcastQueueMode(),                      // 37
       PlayerSettings.getCardButtonLayout(),                        // 38
@@ -202,13 +200,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final localUrl = results[31] as String;
     final audioFocusOff = results[32] as bool;
     final autoDlStream = results[33] as bool;
-    final colorSource = results[34] as String;
-    final startScreen = results[35] as int;
-    final podcastQueueMode = results[36] as String;
-    final cardBtnLayout = results[37] as String;
-    final rectCovers = results[38] as bool;
-    final trustCerts = results[39] as bool;
-    final coverPlay = results[40] as bool;
+    final startScreen = results[34] as int;
+    final podcastQueueMode = results[35] as String;
+    final cardBtnLayout = results[36] as String;
+    final rectCovers = results[37] as bool;
+    final trustCerts = results[38] as bool;
+    final coverPlay = results[39] as bool;
     if (mounted) setState(() {
       _rewindSettings = s;
       _defaultSpeed = speed;
@@ -236,7 +233,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _fullScreenPlayer = fullScreen;
       _snappyTransitions = snappyTrans;
       _themeMode = theme;
-      _colorSource = colorSource;
       _downloadLocationLabel = dlLabel;
       _totalDownloadSizeBytes = dlSize;
       if (deviceStorage != null) {
@@ -610,36 +606,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 setState(() => _themeMode = mode);
                                 PlayerSettings.setThemeMode(mode);
                                 applyThemeMode(mode);
-                              } : null,
-                              style: const ButtonStyle(
-                                visualDensity: VisualDensity.compact,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          Text('Color source', style: tt.titleSmall),
-                          const SizedBox(height: 4),
-                          Text(
-                            _colorSource == 'cover'
-                                ? 'App colors follow the currently playing book cover'
-                                : 'App colors follow your system wallpaper',
-                            style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-                          ),
-                          const SizedBox(height: 12),
-                          SizedBox(
-                            width: double.infinity,
-                            child: SegmentedButton<String>(
-                              showSelectedIcon: false,
-                              segments: const [
-                                ButtonSegment(value: 'wallpaper', label: Text('Wallpaper')),
-                                ButtonSegment(value: 'cover', label: Text('Now Playing')),
-                              ],
-                              selected: {_colorSource},
-                              onSelectionChanged: _loaded ? (selected) {
-                                final source = selected.first;
-                                setState(() => _colorSource = source);
-                                PlayerSettings.setColorSource(source);
-                                colorSourceNotifier.value = source;
                               } : null,
                               style: const ButtonStyle(
                                 visualDensity: VisualDensity.compact,

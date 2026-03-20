@@ -355,7 +355,7 @@ class PlayerSettings {
   static Future<String> getThemeMode() => _get('themeMode', 'dark');
   static Future<void> setThemeMode(String value) => _set('themeMode', value);
 
-  static Future<String> getColorSource() => _get('colorSource', 'wallpaper');
+  static Future<String> getColorSource() => _get('colorSource', 'default');
   static Future<void> setColorSource(String value) => _set('colorSource', value);
 
   /// Default start screen tab index: 0=Home, 1=Library, 2=Absorbing, 3=Stats, 4=Settings

@@ -9,7 +9,7 @@ import '../services/chromecast_service.dart';
 import '../services/sleep_timer_service.dart';
 import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
-import '../main.dart' show snappyTransitionsNotifier, colorSourceNotifier, coverSchemeNotifier;
+import '../main.dart' show snappyTransitionsNotifier, coverSchemeNotifier;
 import '../l10n/app_localizations.dart';
 import '../services/android_auto_service.dart';
 import '../widgets/expanded_card.dart';
@@ -146,7 +146,6 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver, Ticker
     _player.addListener(_onPlayerChanged);
     _wasCasting = _cast.isCasting;
     _cast.addListener(_onCastChanged);
-    colorSourceNotifier.addListener(_onColorSourceChanged);
     // Try immediately; _onLibraryChanged picks it up once data loads.
     _deriveCoverScheme();
     context.read<LibraryProvider>().addListener(_onLibraryChanged);
@@ -158,32 +157,21 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver, Ticker
     _fadeController.dispose();
     _player.removeListener(_onPlayerChanged);
     _cast.removeListener(_onCastChanged);
-    colorSourceNotifier.removeListener(_onColorSourceChanged);
     try { context.read<LibraryProvider>().removeListener(_onLibraryChanged); } catch (_) {}
     if (_instance == this) _instance = null;
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
-  void _onColorSourceChanged() {
-    if (colorSourceNotifier.value == 'cover') {
-      _lastCoverItemId = null; // force re-derive
-      _deriveCoverScheme();
-    } else {
-      coverSchemeNotifier.value = null;
-    }
-  }
-
   void _onLibraryChanged() {
     // Once absorbing list loads, derive cover scheme if we haven't yet
-    if (colorSourceNotifier.value == 'cover' && coverSchemeNotifier.value == null) {
+    if (coverSchemeNotifier.value == null) {
       _deriveCoverScheme();
     }
   }
 
   /// Attempt to derive cover scheme. Returns true if successful.
   bool _deriveCoverScheme() {
-    if (colorSourceNotifier.value != 'cover') return false;
     // Use player's current item, or fall back to absorbing list's first item
     var itemId = _player.currentItemId;
     if (itemId == null) {
