@@ -1830,6 +1830,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ],
                     ],
                     const Divider(height: 1, indent: 16, endIndent: 16),
+                    if (!Platform.isIOS) ...[
                     SwitchListTile(
                       title: Row(children: [
                         const Flexible(child: Text('Disable audio focus')),
@@ -1865,6 +1866,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       } : null,
                     ),
                     const Divider(height: 1, indent: 16, endIndent: 16),
+                    ],
                     SwitchListTile(
                       title: Row(children: [
                         const Flexible(child: Text('Trust all certificates')),

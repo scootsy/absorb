@@ -461,15 +461,20 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
         if (_resubscribeCount <= 3) {
           debugPrint('[Player] playbackEvent error ($_resubscribeCount/3) - re-subscribing: $e');
           refreshPlaybackState();
-          _subscribePlaybackEvents();
+          Future.delayed(const Duration(seconds: 1), _subscribePlaybackEvents);
         } else {
           debugPrint('[Player] playbackEvent error - too many rapid failures, stopping re-subscribe: $e');
         }
       },
       onDone: () {
-        debugPrint('[Player] playbackEvent stream completed - re-subscribing');
-        refreshPlaybackState();
-        _subscribePlaybackEvents();
+        _resubscribeCount++;
+        if (_resubscribeCount <= 3) {
+          debugPrint('[Player] playbackEvent stream completed ($_resubscribeCount/3) - re-subscribing');
+          refreshPlaybackState();
+          Future.delayed(const Duration(seconds: 1), _subscribePlaybackEvents);
+        } else {
+          debugPrint('[Player] playbackEvent stream completed - too many rapid re-subscribes, stopping');
+        }
       },
     );
   }
@@ -1341,11 +1346,14 @@ class AudioPlayerService extends ChangeNotifier {
       return;
     }
 
-    await session.configure(const AudioSessionConfiguration(
-      // iOS: playback category with spokenAudio mode (auto-pauses for other audio)
+    await session.configure(AudioSessionConfiguration(
+      // iOS: playback category — no duckOthers so iOS properly recognises this
+      // app as the Now Playing app and shows lock screen / Control Center controls.
       avAudioSessionCategory: AVAudioSessionCategory.playback,
       avAudioSessionMode: AVAudioSessionMode.spokenAudio,
-      avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.duckOthers,
+      avAudioSessionCategoryOptions: Platform.isIOS
+          ? AVAudioSessionCategoryOptions.none
+          : AVAudioSessionCategoryOptions.duckOthers,
       // Android: use music content type to avoid speech-specific volume normalization
       // that makes audiobooks quieter than music apps on Pixel and other devices
       androidAudioAttributes: AndroidAudioAttributes(
