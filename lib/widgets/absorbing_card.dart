@@ -382,7 +382,12 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
     }
 
     final showBookBar = (!_isPodcastEpisode || _chapters.isNotEmpty) && (!lib.isPodcastLibrary || _chapters.isNotEmpty);
-    return Container(
+    return GestureDetector(
+      onVerticalDragEnd: (details) {
+        final vy = details.primaryVelocity ?? 0;
+        if (vy < -300) expandCard(context); // swipe up to expand
+      },
+      child: Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: accent.withValues(alpha: 0.15), width: 1),
@@ -762,6 +767,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
         ],
       ),
       ),
+    ),
     );
   }
 

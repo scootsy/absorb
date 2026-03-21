@@ -45,13 +45,6 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
     return _cardKeys.putIfAbsent(absorbingKey, () => GlobalKey<AbsorbingCardState>());
   }
 
-  void _expandCurrentCard() {
-    final books = _getAbsorbingBooks(context.read<LibraryProvider>());
-    if (books.isEmpty) return;
-    final idx = books.length == 1 ? 0 : (_pageController.hasClients ? (_pageController.page ?? 0).round().clamp(0, books.length - 1) : 0);
-    final key = _absorbingKey(books[idx]);
-    _cardKeys[key]?.currentState?.expandCard(context);
-  }
 
   final _cast = ChromecastService();
 
@@ -564,20 +557,6 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
               Padding(
                 padding: const EdgeInsets.only(top: 4, bottom: 2),
                 child: _PageDots(count: books.length, controller: _pageController),
-              ),
-            // ── Expand button ──
-            if (books.isNotEmpty)
-              Align(
-                alignment: Alignment.centerRight,
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: _expandCurrentCard,
-                  child: Padding(
-                    padding: const EdgeInsets.only(right: 28),
-                    child: Icon(Icons.open_in_full_rounded, size: 15,
-                      color: cs.onSurface.withValues(alpha: 0.4)),
-                  ),
-                ),
               ),
             // ── Cards (refreshable) ──
             Expanded(

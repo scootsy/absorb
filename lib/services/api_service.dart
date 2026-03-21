@@ -778,13 +778,13 @@ class ApiService {
     return null;
   }
 
-  /// Get a single series with its books.
-  Future<Map<String, dynamic>?> getSeries(String seriesId, {String? libraryId}) async {
+  /// Get a single series with its books (paginated).
+  Future<Map<String, dynamic>?> getSeries(String seriesId, {String? libraryId, int page = 0, int limit = 50}) async {
     try {
       Map<String, dynamic>? seriesMeta;
-      
-      // Get series metadata
-      if (libraryId != null) {
+
+      // Get series metadata (only on first page)
+      if (libraryId != null && page == 0) {
         final metaResp = await http.get(
           Uri.parse('$_cleanBaseUrl/api/libraries/$libraryId/series/$seriesId'),
           headers: _headers,
@@ -793,12 +793,12 @@ class ApiService {
           seriesMeta = jsonDecode(metaResp.body) as Map<String, dynamic>;
         }
       }
-      
+
       // Get books in the series via library items filter
       // ABS filter format: series.<base64(seriesId)>
       if (libraryId != null) {
         final filterValue = base64Encode(utf8.encode(seriesId));
-        final url = '$_cleanBaseUrl/api/libraries/$libraryId/items?filter=series.$filterValue&sort=media.metadata.series.sequence&limit=100&collapseseries=0';
+        final url = '$_cleanBaseUrl/api/libraries/$libraryId/items?filter=series.$filterValue&sort=media.metadata.series.sequence&limit=$limit&page=$page&collapseseries=0';
         final itemsResp = await http.get(
           Uri.parse(url),
           headers: _headers,
@@ -806,10 +806,12 @@ class ApiService {
         if (itemsResp.statusCode == 200) {
           final data = jsonDecode(itemsResp.body) as Map<String, dynamic>;
           final results = data['results'] as List<dynamic>? ?? [];
+          final total = (data['total'] as num?)?.toInt() ?? results.length;
           return {
             'id': seriesId,
             'name': seriesMeta?['name'] ?? '',
             'books': results,
+            'total': total,
           };
         }
       }

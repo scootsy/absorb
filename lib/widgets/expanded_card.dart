@@ -498,7 +498,12 @@ class _ExpandedCardState extends State<ExpandedCard> {
       bookProgress = progress;
     }
 
-    return Scaffold(
+    return GestureDetector(
+      onVerticalDragEnd: (details) {
+        final vy = details.primaryVelocity ?? 0;
+        if (vy > 300) _dismissExpanded(); // swipe down to collapse
+      },
+      child: Scaffold(
       backgroundColor: cs.surface,
       body: Stack(
               fit: StackFit.expand,
@@ -549,15 +554,6 @@ class _ExpandedCardState extends State<ExpandedCard> {
                                 shadows: [Shadow(color: isDark ? Colors.black.withValues(alpha: 0.6) : Colors.white.withValues(alpha: 0.6), blurRadius: 4)],
                               )),
                             const Spacer(),
-                            GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onTap: _dismissExpanded,
-                              child: Padding(
-                                padding: const EdgeInsets.all(8),
-                                child: Icon(Icons.close_fullscreen_rounded, size: 17,
-                                  color: isDark ? Colors.white.withValues(alpha: 0.6) : Colors.black.withValues(alpha: 0.5)),
-                              ),
-                            ),
                           ],
                         ),
                       ),
@@ -805,6 +801,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
                 ),
               ],
             ),
+    ),
     );
   }
 
