@@ -476,6 +476,7 @@ class ApiService {
     String sessionId, {
     required double currentTime,
     required double duration,
+    int timeListened = 60,
   }) async {
     try {
       await http.post(
@@ -483,7 +484,7 @@ class ApiService {
         headers: _headers,
         body: jsonEncode({
           'currentTime': currentTime,
-          'timeListened': 15,
+          'timeListened': timeListened,
           'duration': duration,
         }),
       ).timeout(const Duration(seconds: 10));

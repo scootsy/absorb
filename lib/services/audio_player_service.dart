@@ -1828,6 +1828,7 @@ class AudioPlayerService extends ChangeNotifier {
     }
 
     _playbackSessionId = sessionData['id'] as String?;
+    _lastServerSync = DateTime.now();
     var audioTracks = sessionData['audioTracks'] as List<dynamic>?;
     if (audioTracks == null || audioTracks.isEmpty) {
       _clearState();
@@ -2404,16 +2405,21 @@ class AudioPlayerService extends ChangeNotifier {
     // _logEvent(PlaybackEventType.syncLocal); // too noisy for history
   }
 
+  DateTime _lastServerSync = DateTime.now();
+
   Future<void> _syncToServer(Duration pos) async {
     if (_api == null || _playbackSessionId == null) return;
     final ct = pos.inMilliseconds / 1000.0;
+    final now = DateTime.now();
+    final elapsed = now.difference(_lastServerSync).inSeconds.clamp(0, 120);
+    _lastServerSync = now;
     try {
       await _api!.syncPlaybackSession(
         _playbackSessionId!,
         currentTime: ct,
         duration: _totalDuration,
+        timeListened: elapsed,
       );
-      // _logEvent(PlaybackEventType.syncServer); // too noisy for history
     } catch (_) {}
   }
 

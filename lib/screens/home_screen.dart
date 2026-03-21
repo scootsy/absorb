@@ -763,7 +763,7 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
                         const Spacer(),
                         Text.rich(TextSpan(children: [
                           TextSpan(
-                              text: '${(progress * 100).round()}%',
+                              text: '${(totalDuration > 0 ? (currentTime / totalDuration * 100).round() : (progress * 100).round())}%',
                               style: tt.labelSmall?.copyWith(
                                   fontWeight: FontWeight.w700, color: cs.primary, fontSize: 11)),
                           if (totalDuration > 0)
@@ -782,7 +782,7 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
             ClipRRect(
               borderRadius: const BorderRadius.vertical(bottom: Radius.circular(14)),
               child: LinearProgressIndicator(
-                value: progress.clamp(0.0, 1.0), minHeight: 3,
+                value: (totalDuration > 0 ? currentTime / totalDuration : progress).clamp(0.0, 1.0), minHeight: 3,
                 backgroundColor: Colors.transparent,
                 valueColor: AlwaysStoppedAnimation(cs.primary),
               ),

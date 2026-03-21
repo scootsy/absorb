@@ -742,15 +742,10 @@ class _ExpandedCardState extends State<ExpandedCard> {
                       ),
                       // ── Controls + buttons ──
                       Expanded(
-                        child: LayoutBuilder(
-                          builder: (context, lc) {
-                            return FittedBox(
-                              fit: BoxFit.scaleDown,
-                              alignment: Alignment.center,
-                              child: SizedBox(
-                                width: lc.maxWidth - 56,
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 28),
+                          child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     const SizedBox(height: 18),
                                     CardPlaybackControls(
@@ -803,9 +798,6 @@ class _ExpandedCardState extends State<ExpandedCard> {
                                     const SizedBox(height: 12),
                                   ],
                                 ),
-                              ),
-                            );
-                          },
                         ),
                       ),
                     ],

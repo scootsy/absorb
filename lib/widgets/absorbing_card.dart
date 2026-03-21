@@ -489,16 +489,15 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
               ),
                 SizedBox(height: compact ? 2 : 6),
                 // ── Cover with title/author/chapter overlaid + download badge ──
-                Expanded(
-                  child: Center(
-                  child: Padding(
+                const Spacer(),
+                Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 4),
                     child: ListenableBuilder(
                     listenable: ChromecastService(),
                     builder: (context, _) => LayoutBuilder(
                     builder: (context, constraints) {
-                      final maxW = constraints.maxWidth * 0.60;
-                      final maxH = constraints.maxHeight;
+                      final maxW = constraints.maxWidth * 0.75;
+                      final maxH = constraints.maxHeight.isFinite ? constraints.maxHeight : maxW;
                       double coverW, coverH;
                       if (_rectangleCovers) {
                         coverW = maxW;
@@ -650,17 +649,15 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                     },
                   ),
                   ),
-                  ),
                 ),
-                ),
-                SizedBox(height: compact ? 8 : 16),
+                const Spacer(),
                 // ── Chapter pill-scrubber ──
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: (_isPodcastEpisode && _chapters.isEmpty) ? 0.0 : progress, staticDuration: (_isPodcastEpisode && _chapters.isEmpty) ? widget.player.totalDuration : _effectiveDuration, chapters: _chapters, showBookBar: false, showChapterBar: true, chapterName: (_isPodcastEpisode && _chapters.isEmpty) ? (widget.player.currentEpisodeTitle ?? widget.player.currentTitle ?? _title) : (_episodeId != null && !_isActive ? (_recentEpisode?['title'] as String? ?? _title) : _chapterName(chapterIdx)), chapterIndex: chapterIdx, totalChapters: totalChapters, itemId: _itemId, compact: compact),
                 ),
                 // ── Controls ──
-                SizedBox(height: compact ? 6 : 12),
+                const Spacer(),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: CardPlaybackControls(
@@ -673,7 +670,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                     showPlayButton: !_coverPlayButton,
                   ),
                 ),
-                SizedBox(height: compact ? 6 : 12),
+                const Spacer(),
                 // ── Button grid + more menu ──
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
