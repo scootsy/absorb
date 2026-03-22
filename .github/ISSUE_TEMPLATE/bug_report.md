@@ -1,5 +1,3 @@
-<!-- .github/ISSUE_TEMPLATE/bug_report.md -->
-
 ---
 name: Bug Report
 about: Report a bug or issue
