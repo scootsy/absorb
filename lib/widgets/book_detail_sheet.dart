@@ -22,6 +22,7 @@ import '../services/progress_sync_service.dart';
 import '../services/metadata_override_service.dart';
 import '../services/scoped_prefs.dart';
 import '../screens/app_shell.dart';
+import '../screens/epub_reader_screen.dart';
 import 'author_books_sheet.dart';
 import 'series_books_sheet.dart';
 import 'absorbing_shared.dart';
@@ -589,6 +590,14 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
                 _moreItem(cs, _ebookSaved ? Icons.download_done_rounded : Icons.save_alt_rounded,
                   _ebookSaved ? 'Download eBook Again' : 'Download eBook',
                   onTap: () { Navigator.pop(ctx); _saveEbook(context, auth, ebookFile, title); }),
+              if (ebookFile != null && !lib.isOffline)
+                _moreItem(cs, Icons.auto_stories_rounded, 'Read Along',
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    final ino = ebookFile['ino'] as String?;
+                    if (ino == null) return;
+                    openEpubReader(context, itemId: widget.itemId, fileIno: ino, bookTitle: title);
+                  }),
               if (progress > 0 || isFinished)
                 _moreItem(cs, Icons.restart_alt_rounded, 'Reset Progress',
                   onTap: () { Navigator.pop(ctx); _resetProgress(context, auth, duration); }),

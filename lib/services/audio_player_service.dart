@@ -1018,6 +1018,7 @@ class AudioPlayerService extends ChangeNotifier {
   // We store cumulative start offsets so we can compute absolute book position.
   List<double> _trackStartOffsets = []; // [0, dur0, dur0+dur1, ...]
   int _currentTrackIndex = 0;
+  List<dynamic> _audioTracks = []; // raw audioTracks from session
   int _lastNotifiedChapterIndex = -1;
   int _lastChapterCheckSec = -1;
   StreamSubscription? _indexSub;
@@ -1163,6 +1164,17 @@ class AudioPlayerService extends ChangeNotifier {
 
   Duration get duration => _player?.duration ?? Duration.zero;
   double get speed => _player?.speed ?? 1.0;
+
+  /// Index of the currently playing audio track (0-based).
+  int get currentTrackIndex => _currentTrackIndex;
+
+  /// Cumulative start offsets (in seconds) for each track.
+  /// Element [i] is the absolute start of track i.
+  List<double> get trackStartOffsets => List.unmodifiable(_trackStartOffsets);
+
+  /// Raw audioTracks list from the current playback session.
+  /// Each element is a Map with keys like 'contentUrl', 'duration', 'metadata'.
+  List<dynamic> get audioTracks => List.unmodifiable(_audioTracks);
 
   /// Build track start offsets from audioTracks list.
   void _buildTrackOffsets(List<dynamic> audioTracks) {
@@ -1898,6 +1910,7 @@ class AudioPlayerService extends ChangeNotifier {
       final audioHeaders = api.mediaHeaders;
 
       // Build audio source — one source per track file
+      _audioTracks = audioTracks;
       _buildTrackOffsets(audioTracks);
       AudioSource source;
       if (audioTracks.length == 1) {
