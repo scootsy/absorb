@@ -199,8 +199,14 @@ class AuthProvider extends ChangeNotifier {
     _serverSettings = result['serverSettings'] as Map<String, dynamic>?;
     _customHeaders = customHeaders;
 
-    // Fetch server version from /status endpoint (fire and forget)
-    _fetchServerVersion(url);
+    // Try to get version from login response first, fall back to /status
+    final loginVersion = result['serverVersion'] as String?
+        ?? (_serverSettings?['version'] as String?);
+    if (loginVersion != null && loginVersion.isNotEmpty) {
+      _serverVersion = loginVersion;
+    } else {
+      _fetchServerVersion(url);
+    }
 
     // Persist session
     try {
@@ -262,8 +268,14 @@ class AuthProvider extends ChangeNotifier {
     _serverSettings = result['serverSettings'] as Map<String, dynamic>?;
     _serverReachable = true;
 
-    // Fetch server version
-    _fetchServerVersion(url);
+    // Try to get version from response first, fall back to /status
+    final oidcVersion = result['serverVersion'] as String?
+        ?? (_serverSettings?['version'] as String?);
+    if (oidcVersion != null && oidcVersion.isNotEmpty) {
+      _serverVersion = oidcVersion;
+    } else {
+      _fetchServerVersion(url);
+    }
 
     // Persist session
     try {
