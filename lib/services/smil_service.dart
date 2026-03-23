@@ -121,12 +121,13 @@ class SmilService {
   /// EPUBs where the last SMIL clip ends very close to the audio file's end.
   static SmilAudioOffsets computeAudioOffsets(List<SmilFileInfo> smilFiles) {
     final order = <String>[];
+    final seen = <String>{};
     final maxClipEnd = <String, Duration>{};
 
     for (final sf in smilFiles) {
       for (final clip in sf.clips) {
         final base = p.basename(clip.audioSrc).toLowerCase();
-        if (!order.contains(base)) order.add(base);
+        if (seen.add(base)) order.add(base);
         final current = maxClipEnd[base] ?? Duration.zero;
         if (clip.clipEnd > current) maxClipEnd[base] = clip.clipEnd;
       }

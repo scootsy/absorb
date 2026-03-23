@@ -107,8 +107,11 @@ class EpubService {
     try {
       final supportDir = await getApplicationSupportDirectory();
       final safeId = itemId.replaceAll(RegExp(r'[^\w]'), '_');
-      final epubFile = File(p.join(supportDir.path, '$safeId.epub'));
-      final extractDir = Directory(p.join(supportDir.path, '${safeId}_epub'));
+      // Include fileIno in cache paths so a replaced server file invalidates cache.
+      final safeIno = fileIno.replaceAll(RegExp(r'[^\w]'), '_');
+      final epubFile = File(p.join(supportDir.path, '${safeId}_$safeIno.epub'));
+      final extractDir = Directory(p.join(supportDir.path, '${safeId}_${safeIno}_epub'));
+      final tmpExtractDir = Directory(p.join(supportDir.path, '${safeId}_${safeIno}_epub_tmp'));
 
       // ── Download ────────────────────────────────────────────────────────
       if (!epubFile.existsSync()) {
@@ -153,15 +156,17 @@ class EpubService {
 
       // ── Extract ─────────────────────────────────────────────────────────
       if (!extractDir.existsSync()) {
-        extractDir.createSync(recursive: true);
-        final bytes = await epubFile.readAsBytes();
-        final archive = ZipDecoder().decodeBytes(bytes);
-        for (final file in archive) {
-          if (!file.isFile) continue;
-          final outPath = p.join(extractDir.path, file.name);
-          final outFile = File(outPath);
-          outFile.parent.createSync(recursive: true);
-          outFile.writeAsBytesSync(file.content as List<int>);
+        // Clean up any leftover temp dir from a previous failed extraction.
+        if (tmpExtractDir.existsSync()) tmpExtractDir.deleteSync(recursive: true);
+        tmpExtractDir.createSync(recursive: true);
+        try {
+          // Run CPU-heavy ZIP decode + file I/O on a background isolate.
+          await compute(_extractZipInIsolate, [epubFile.path, tmpExtractDir.path]);
+          // Atomic rename: only visible as complete or not-started.
+          await tmpExtractDir.rename(extractDir.path);
+        } catch (e) {
+          if (tmpExtractDir.existsSync()) tmpExtractDir.deleteSync(recursive: true);
+          rethrow;
         }
       }
 
@@ -219,13 +224,14 @@ class EpubService {
         ));
       }
 
-      // Build map of audio basenames → extracted abs paths (from manifest)
+      // Build map of audio basenames → extracted abs paths (from manifest).
+      // Keys are lowercased to match SmilService's lowercase basename convention.
       final extractedAudioPaths = <String, String>{};
       for (final item in manifest) {
         if (!item.isAudio) continue;
         final absPath = p.normalize(p.join(opfDir, item.href));
         if (File(absPath).existsSync()) {
-          extractedAudioPaths[p.basename(absPath)] = absPath;
+          extractedAudioPaths[p.basename(absPath).toLowerCase()] = absPath;
         }
       }
 
@@ -286,13 +292,44 @@ class EpubService {
     }
   }
 
-  /// Delete the cached epub and extracted directory for [itemId].
+  /// Delete all cached epub files and extracted directories for [itemId],
+  /// covering both the old (no-ino) and new (ino-keyed) naming formats.
   static Future<void> clearCache(String itemId) async {
     final supportDir = await getApplicationSupportDirectory();
     final safeId = itemId.replaceAll(RegExp(r'[^\w]'), '_');
-    final epubFile = File(p.join(supportDir.path, '$safeId.epub'));
-    final extractDir = Directory(p.join(supportDir.path, '${safeId}_epub'));
-    if (epubFile.existsSync()) epubFile.deleteSync();
-    if (extractDir.existsSync()) extractDir.deleteSync(recursive: true);
+    await for (final entity in Directory(supportDir.path).list()) {
+      final name = p.basename(entity.path);
+      // Old format: ${safeId}.epub  or  ${safeId}_epub
+      // New format: ${safeId}_${safeIno}.epub  or  ${safeId}_${safeIno}_epub[_tmp]
+      final isMatch = name == '$safeId.epub' ||
+          name == '${safeId}_epub' ||
+          (name.startsWith('${safeId}_') &&
+              (name.endsWith('.epub') ||
+                  name.endsWith('_epub') ||
+                  name.endsWith('_epub_tmp')));
+      if (isMatch) {
+        try {
+          await entity.delete(recursive: true);
+        } catch (_) {}
+      }
+    }
+  }
+}
+
+// ─── Isolate helper ───────────────────────────────────────────────────────────
+
+/// Top-level function so [compute] can spawn it in a background isolate.
+/// args[0] = source epub file path, args[1] = destination extract directory path.
+Future<void> _extractZipInIsolate(List<String> args) async {
+  final epubPath = args[0];
+  final extractPath = args[1];
+  final bytes = await File(epubPath).readAsBytes();
+  final archive = ZipDecoder().decodeBytes(bytes);
+  for (final file in archive) {
+    if (!file.isFile) continue;
+    final outPath = p.join(extractPath, file.name);
+    final outFile = File(outPath);
+    outFile.parent.createSync(recursive: true);
+    outFile.writeAsBytesSync(file.content as List<int>);
   }
 }

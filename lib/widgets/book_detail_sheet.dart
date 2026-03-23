@@ -591,7 +591,7 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
                   _ebookSaved ? 'Download eBook Again' : 'Download eBook',
                   onTap: () { Navigator.pop(ctx); _saveEbook(context, auth, ebookFile, title); }),
               if (ebookFile != null && !lib.isOffline)
-                _moreItem(cs, Icons.auto_stories_rounded, 'Read Along',
+                _moreItem(cs, Icons.auto_stories_rounded, 'Read eBook',
                   onTap: () {
                     Navigator.pop(ctx);
                     final ino = ebookFile['ino'] as String?;

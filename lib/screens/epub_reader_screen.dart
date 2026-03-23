@@ -47,7 +47,8 @@ class EpubReaderScreen extends StatefulWidget {
   State<EpubReaderScreen> createState() => _EpubReaderScreenState();
 }
 
-class _EpubReaderScreenState extends State<EpubReaderScreen> {
+class _EpubReaderScreenState extends State<EpubReaderScreen>
+    with WidgetsBindingObserver {
   // ── Loading ────────────────────────────────────────────────────────────
   bool _loading = true;
   String? _error;
@@ -56,6 +57,10 @@ class _EpubReaderScreenState extends State<EpubReaderScreen> {
   EpubInfo? _epub;
   SmilIndex? _smilIndex;
   SmilAudioOffsets? _audioOffsets;
+  // fragId → smilDir: precomputed to avoid O(n·m) scan on every position tick.
+  Map<String, String> _fragSmilDir = {};
+  // Cached spine content paths (set once when epub loads).
+  List<String>? _cachedContentPaths;
 
   // ── WebView ────────────────────────────────────────────────────────────
   late final WebViewController _webController;
@@ -64,6 +69,10 @@ class _EpubReaderScreenState extends State<EpubReaderScreen> {
 
   // ── SMIL sync ──────────────────────────────────────────────────────────
   SmilClip? _activeClip;
+
+  // ── Main player ────────────────────────────────────────────────────────
+  AudioPlayerService? _mainPlayer;
+  bool _mainPlayerWasPlaying = false;
 
   // ── EPUB audio player ──────────────────────────────────────────────────
   AudioPlayer? _epubPlayer;
@@ -91,6 +100,7 @@ class _EpubReaderScreenState extends State<EpubReaderScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initWebView();
     // Defer epub loading so the build context is available
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadEpub());
@@ -109,12 +119,24 @@ class _EpubReaderScreenState extends State<EpubReaderScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _savePosition();
     _positionSub?.cancel();
     _indexSub?.cancel();
     _stateSub?.cancel();
     _epubPlayer?.dispose();
+    // Resume the main audiobook player if it was playing when we opened.
+    if (_mainPlayerWasPlaying) _mainPlayer?.play();
+    _mainPlayer = null;
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      _savePosition();
+    }
   }
 
   // ─── WebView setup ────────────────────────────────────────────────────
@@ -147,9 +169,10 @@ class _EpubReaderScreenState extends State<EpubReaderScreen> {
       return;
     }
 
-    // Pause the main audiobook player if it's running
-    final mainPlayer = context.read<AudioPlayerService>();
-    if (mainPlayer.isPlaying) mainPlayer.pause();
+    // Pause the main audiobook player if it's running; resume it on dispose.
+    _mainPlayer = context.read<AudioPlayerService>();
+    _mainPlayerWasPlaying = _mainPlayer!.isPlaying;
+    if (_mainPlayerWasPlaying) _mainPlayer!.pause();
 
     final epub = await EpubService.loadEpub(
       itemId: widget.itemId,
@@ -169,20 +192,38 @@ class _EpubReaderScreenState extends State<EpubReaderScreen> {
 
     SmilIndex? smilIndex;
     SmilAudioOffsets? audioOffsets;
+    final fragSmilDir = <String, String>{};
 
     if (epub.hasMediaOverlays) {
       audioOffsets = SmilService.computeAudioOffsets(epub.smilFiles);
       smilIndex = SmilService.buildIndex(epub.smilFiles);
       debugPrint('[EpubReader] SMIL index: ${smilIndex.length} clips, '
           'total ${audioOffsets.total.inSeconds}s');
+      // Pre-build fragId → smilDir map to avoid O(n·m) scan on every tick.
+      for (final sf in epub.smilFiles) {
+        final dir = p.dirname(sf.smilPath);
+        for (final clip in sf.clips) {
+          fragSmilDir[clip.fragId] = dir;
+        }
+      }
     } else {
       debugPrint('[EpubReader] No media overlays — read-only mode.');
     }
+
+    // Pre-compute content paths list once.
+    final contentPaths = epub.spineIds
+        .map((id) => epub.itemById(id))
+        .whereType<EpubManifestItem>()
+        .where((item) => item.isContent)
+        .map((item) => epub.resolveHref(item.href))
+        .toList();
 
     setState(() {
       _epub = epub;
       _smilIndex = smilIndex;
       _audioOffsets = audioOffsets;
+      _fragSmilDir = fragSmilDir;
+      _cachedContentPaths = contentPaths;
       if (audioOffsets != null) _totalDuration = audioOffsets.total;
       _loading = false;
     });
@@ -300,7 +341,7 @@ class _EpubReaderScreenState extends State<EpubReaderScreen> {
     _activeClip = clip;
 
     final epub = _epub!;
-    final smilDir = _smilDirForClip(clip);
+    final smilDir = _fragSmilDir[clip.fragId] ?? '';
     final targetPath = p.normalize(p.join(epub.opfDir, smilDir, clip.contentSrc));
     if (targetPath != _loadedContentPath) {
       _navigateToPath(targetPath);
@@ -308,15 +349,6 @@ class _EpubReaderScreenState extends State<EpubReaderScreen> {
     } else if (_webReady) {
       _applyHighlight(clip.fragId);
     }
-  }
-
-  String _smilDirForClip(SmilClip clip) {
-    for (final sf in _epub!.smilFiles) {
-      if (sf.clips.any((c) => c.fragId == clip.fragId)) {
-        return p.dirname(sf.smilPath);
-      }
-    }
-    return '';
   }
 
   // ─── Tap-to-seek ──────────────────────────────────────────────────────
@@ -349,7 +381,10 @@ class _EpubReaderScreenState extends State<EpubReaderScreen> {
     final onSurface = _hexColor(cs.onSurface);
     final primary = _hexColor(cs.primary);
     final highlight = _hexColor(cs.primaryContainer);
-    final activeClass = _epub?.activeClass ?? '-epub-media-overlay-active';
+    // Sanitize to safe CSS identifier characters before injecting into JS.
+    final rawClass = _epub?.activeClass ?? '-epub-media-overlay-active';
+    final sanitized = rawClass.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '');
+    final activeClass = sanitized.isNotEmpty ? sanitized : 'epub-overlay-active';
 
     _webController.runJavaScript('''
 (function() {
@@ -411,8 +446,13 @@ class _EpubReaderScreenState extends State<EpubReaderScreen> {
         "if(window.smilHighlight)smilHighlight('${_escapeJs(fragId)}');");
   }
 
-  String _escapeJs(String s) =>
-      s.replaceAll(r'\', r'\\').replaceAll("'", r"\'");
+  String _escapeJs(String s) => s
+      .replaceAll(r'\', r'\\')
+      .replaceAll("'", r"\'")
+      .replaceAll('\n', r'\n')
+      .replaceAll('\r', r'\r')
+      .replaceAll('\u2028', r'\u2028')
+      .replaceAll('\u2029', r'\u2029');
 
   String _hexColor(Color c) {
     final r = (c.r * 255).round().toRadixString(16).padLeft(2, '0');
@@ -423,16 +463,7 @@ class _EpubReaderScreenState extends State<EpubReaderScreen> {
 
   // ─── Spine navigation ─────────────────────────────────────────────────
 
-  List<String> get _contentPaths {
-    final epub = _epub;
-    if (epub == null) return [];
-    return epub.spineIds
-        .map((id) => epub.itemById(id))
-        .whereType<EpubManifestItem>()
-        .where((item) => item.isContent)
-        .map((item) => epub.resolveHref(item.href))
-        .toList();
-  }
+  List<String> get _contentPaths => _cachedContentPaths ?? [];
 
   void _goToPrev() {
     final paths = _contentPaths;
@@ -622,7 +653,7 @@ class _EpubReaderScreenState extends State<EpubReaderScreen> {
           Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
             // Skip back 15s
             IconButton(
-              icon: const Icon(Icons.replay_10_rounded),
+              icon: const Icon(Icons.replay_15_rounded),
               iconSize: 28,
               color: cs.onSurface,
               tooltip: 'Skip back 15s',
