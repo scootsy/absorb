@@ -1,18 +1,19 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter/material.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../providers/auth_provider.dart';
 import '../services/audio_player_service.dart';
 import '../services/epub_service.dart';
+import '../services/scoped_prefs.dart';
 import '../services/smil_service.dart';
 
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
-/// Push the epub reader screen onto the navigator.
-/// Call this when the user taps "Read Along".
 void openEpubReader(
   BuildContext context, {
   required String itemId,
@@ -47,22 +48,43 @@ class EpubReaderScreen extends StatefulWidget {
 }
 
 class _EpubReaderScreenState extends State<EpubReaderScreen> {
-  // ── Loading state ──────────────────────────────────────────────────────
+  // ── Loading ────────────────────────────────────────────────────────────
   bool _loading = true;
   String? _error;
 
-  // ── Epub / SMIL data ───────────────────────────────────────────────────
+  // ── Epub / SMIL ────────────────────────────────────────────────────────
   EpubInfo? _epub;
   SmilIndex? _smilIndex;
+  SmilAudioOffsets? _audioOffsets;
 
   // ── WebView ────────────────────────────────────────────────────────────
   late final WebViewController _webController;
-  String? _loadedContentPath; // absolute path of the HTML currently in WebView
-  bool _webReady = false;     // true after onPageFinished fires
+  String? _loadedContentPath;
+  bool _webReady = false;
 
-  // ── Sync state ─────────────────────────────────────────────────────────
-  StreamSubscription<Duration>? _positionSub;
+  // ── SMIL sync ──────────────────────────────────────────────────────────
   SmilClip? _activeClip;
+
+  // ── EPUB audio player ──────────────────────────────────────────────────
+  AudioPlayer? _epubPlayer;
+  int _currentAudioIdx = 0;
+  Duration _currentAudioOffset = Duration.zero;
+  StreamSubscription<Duration>? _positionSub;
+  StreamSubscription<int?>? _indexSub;
+  StreamSubscription<PlayerState>? _stateSub;
+
+  // ── Playback UI state ──────────────────────────────────────────────────
+  bool _isPlaying = false;
+  Duration _position = Duration.zero;
+  Duration _totalDuration = Duration.zero;
+  double _speed = 1.0;
+
+  // ── Seek-drag state ────────────────────────────────────────────────────
+  bool _seeking = false;
+  double _seekDragMs = 0;
+
+  // ── Theme cache ────────────────────────────────────────────────────────
+  ColorScheme? _cs;
 
   // ─── Init ─────────────────────────────────────────────────────────────
 
@@ -70,12 +92,28 @@ class _EpubReaderScreenState extends State<EpubReaderScreen> {
   void initState() {
     super.initState();
     _initWebView();
-    _loadEpub();
+    // Defer epub loading so the build context is available
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadEpub());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final newCs = Theme.of(context).colorScheme;
+    if (_cs != newCs) {
+      _cs = newCs;
+      // Re-inject CSS if the page is already loaded (e.g., theme changed)
+      if (_webReady) _injectPageSetup();
+    }
   }
 
   @override
   void dispose() {
+    _savePosition();
     _positionSub?.cancel();
+    _indexSub?.cancel();
+    _stateSub?.cancel();
+    _epubPlayer?.dispose();
     super.dispose();
   }
 
@@ -84,24 +122,19 @@ class _EpubReaderScreenState extends State<EpubReaderScreen> {
   void _initWebView() {
     _webController = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..addJavaScriptChannel(
+        'SmilTap',
+        onMessageReceived: (msg) => _onTapFrag(msg.message),
+      )
       ..setNavigationDelegate(NavigationDelegate(
         onPageFinished: (_) {
           _webReady = true;
-          _injectHighlightSupport();
-          // Re-apply current highlight if we already know the active clip
-          if (_activeClip != null) {
-            _applyHighlight(_activeClip!.fragId);
-          }
+          _injectPageSetup();
+          if (_activeClip != null) _applyHighlight(_activeClip!.fragId);
         },
-        onWebResourceError: (err) {
-          debugPrint('[EpubReader] WebView error: ${err.description}');
-        },
+        onWebResourceError: (err) =>
+            debugPrint('[EpubReader] WebView error: ${err.description}'),
       ));
-
-    // Allow local file access on Android
-    if (Platform.isAndroid) {
-      _webController.setBackgroundColor(Colors.transparent);
-    }
   }
 
   // ─── Epub loading ─────────────────────────────────────────────────────
@@ -114,6 +147,10 @@ class _EpubReaderScreenState extends State<EpubReaderScreen> {
       return;
     }
 
+    // Pause the main audiobook player if it's running
+    final mainPlayer = context.read<AudioPlayerService>();
+    if (mainPlayer.isPlaying) mainPlayer.pause();
+
     final epub = await EpubService.loadEpub(
       itemId: widget.itemId,
       fileIno: widget.fileIno,
@@ -125,95 +162,154 @@ class _EpubReaderScreenState extends State<EpubReaderScreen> {
 
     if (epub == null) {
       _setError(
-          'Could not load the epub file.\nMake sure the book has an epub on your Audiobookshelf server.');
+          'Could not load the epub file.\n'
+          'Make sure the book is accessible on your Audiobookshelf server.');
       return;
     }
 
-    // Build SMIL index using the audio player's track info
-    final player = context.read<AudioPlayerService>();
     SmilIndex? smilIndex;
+    SmilAudioOffsets? audioOffsets;
 
-    if (epub.smilFiles.isNotEmpty) {
-      final tracks = player.audioTracks;
-      final basenames = <String>[];
-      final durations = <double>[];
-      for (final t in tracks) {
-        final track = t as Map<String, dynamic>;
-        // contentUrl is something like "/api/items/{id}/file/{ino}"
-        final contentUrl = track['contentUrl'] as String? ?? '';
-        basenames.add(p.basename(contentUrl));
-        durations.add((track['duration'] as num?)?.toDouble() ?? 0.0);
-      }
-      smilIndex = SmilService.buildIndex(
-        smilFiles: epub.smilFiles,
-        audioTrackBasenames: basenames,
-        audioTrackDurations: durations,
-      );
-      debugPrint('[EpubReader] SMIL index built. '
-          '${epub.smilFiles.fold(0, (n, f) => n + f.clips.length)} clips');
+    if (epub.hasMediaOverlays) {
+      audioOffsets = SmilService.computeAudioOffsets(epub.smilFiles);
+      smilIndex = SmilService.buildIndex(epub.smilFiles);
+      debugPrint('[EpubReader] SMIL index: ${smilIndex.length} clips, '
+          'total ${audioOffsets.total.inSeconds}s');
     } else {
-      debugPrint('[EpubReader] No SMIL media overlays found in this epub.');
+      debugPrint('[EpubReader] No media overlays — read-only mode.');
     }
 
     setState(() {
       _epub = epub;
       _smilIndex = smilIndex;
+      _audioOffsets = audioOffsets;
+      if (audioOffsets != null) _totalDuration = audioOffsets.total;
       _loading = false;
     });
 
-    // Load first page
+    // Load first content page
     _navigateToPath(epub.firstContentPath);
 
-    // Start SMIL sync if we have an index
-    if (smilIndex != null && !smilIndex.isEmpty) {
-      _startSync(player);
-    }
+    // Start EPUB audio player if we have overlays
+    if (epub.hasMediaOverlays) await _startEpubPlayer(epub, audioOffsets!);
   }
 
   void _setError(String msg) {
     if (mounted) setState(() { _error = msg; _loading = false; });
   }
 
-  // ─── Navigation ───────────────────────────────────────────────────────
+  // ─── EPUB audio player ────────────────────────────────────────────────
 
-  void _navigateToPath(String? absPath) {
-    if (absPath == null) return;
-    final f = File(absPath);
-    if (!f.existsSync()) {
-      debugPrint('[EpubReader] Content file not found: $absPath');
+  Future<void> _startEpubPlayer(
+      EpubInfo epub, SmilAudioOffsets ao) async {
+    // Configure audio session for music/spoken word playback
+    try {
+      final session = await AudioSession.instance;
+      await session.configure(const AudioSessionConfiguration.music());
+    } catch (e) {
+      debugPrint('[EpubReader] Audio session config error: $e');
+    }
+
+    // Build audio sources in playback order
+    final sources = <AudioSource>[];
+    for (final base in ao.order) {
+      final absPath = epub.extractedAudioPaths[base];
+      if (absPath == null || !File(absPath).existsSync()) {
+        debugPrint('[EpubReader] Audio file missing: $base');
+        continue;
+      }
+      sources.add(AudioSource.file(absPath));
+    }
+
+    if (sources.isEmpty) {
+      debugPrint('[EpubReader] No playable audio files found in epub.');
       return;
     }
-    _webReady = false;
-    _loadedContentPath = absPath;
-    _webController.loadFile(absPath);
+
+    final player = AudioPlayer();
+    _epubPlayer = player;
+
+    // Build track offset map (basename → cumulative start Duration)
+    final offsetByIndex = ao.order
+        .map((base) => ao.offsets[base] ?? Duration.zero)
+        .toList();
+
+    // Track absolute position
+    _indexSub = player.currentIndexStream.listen((idx) {
+      if (idx == null) return;
+      _currentAudioIdx = idx;
+      _currentAudioOffset = offsetByIndex[idx];
+    });
+
+    _positionSub = player.positionStream.listen((pos) {
+      final absolute = _currentAudioOffset + pos;
+      if (!_seeking) {
+        if (mounted) setState(() => _position = absolute);
+      }
+      _onPosition(absolute);
+    });
+
+    _stateSub = player.playerStateStream.listen((state) {
+      if (mounted) setState(() => _isPlaying = state.playing);
+    });
+
+    try {
+      await player.setAudioSource(
+        ConcatenatingAudioSource(children: sources),
+        initialIndex: 0,
+        initialPosition: Duration.zero,
+        preload: false,
+      );
+
+      // Restore saved speed
+      final savedSpeed = await ScopedPrefs.getDouble('epub_speed_${widget.itemId}');
+      if (savedSpeed != null) {
+        _speed = savedSpeed;
+        await player.setSpeed(_speed);
+      }
+
+      // Restore saved position
+      final savedMs = await ScopedPrefs.getInt('epub_pos_${widget.itemId}');
+      if (savedMs != null && savedMs > 0) {
+        _seekToAbsolute(Duration(milliseconds: savedMs), player: player);
+      }
+    } catch (e) {
+      debugPrint('[EpubReader] Player setup error: $e');
+    }
+  }
+
+  void _seekToAbsolute(Duration absolute, {AudioPlayer? player}) {
+    final p0 = player ?? _epubPlayer;
+    final ao = _audioOffsets;
+    if (p0 == null || ao == null) return;
+    for (int i = ao.order.length - 1; i >= 0; i--) {
+      final offset = ao.offsets[ao.order[i]]!;
+      if (absolute >= offset) {
+        p0.seek(absolute - offset, index: i);
+        return;
+      }
+    }
+    p0.seek(Duration.zero, index: 0);
   }
 
   // ─── SMIL sync ────────────────────────────────────────────────────────
 
-  void _startSync(AudioPlayerService player) {
-    _positionSub?.cancel();
-    _positionSub = player.absolutePositionStream.listen(_onPosition);
-  }
-
-  void _onPosition(Duration position) {
-    final clip = _smilIndex?.clipAt(position);
+  void _onPosition(Duration absolute) {
+    final clip = _smilIndex?.clipAt(absolute);
     if (clip == null || clip.fragId == _activeClip?.fragId) return;
     _activeClip = clip;
 
-    // If the new clip is in a different content file, navigate first
     final epub = _epub!;
     final smilDir = _smilDirForClip(clip);
-    final targetPath =
-        p.normalize(p.join(epub.opfDir, smilDir, clip.contentSrc));
+    final targetPath = p.normalize(p.join(epub.opfDir, smilDir, clip.contentSrc));
     if (targetPath != _loadedContentPath) {
       _navigateToPath(targetPath);
-      // Highlight will be applied in onPageFinished
+      // Highlight applied in onPageFinished
     } else if (_webReady) {
       _applyHighlight(clip.fragId);
     }
   }
 
-  /// Returns the SMIL file directory (relative to opfDir) for a given clip.
   String _smilDirForClip(SmilClip clip) {
     for (final sf in _epub!.smilFiles) {
       if (sf.clips.any((c) => c.fragId == clip.fragId)) {
@@ -223,45 +319,109 @@ class _EpubReaderScreenState extends State<EpubReaderScreen> {
     return '';
   }
 
-  // ─── WebView JS ───────────────────────────────────────────────────────
+  // ─── Tap-to-seek ──────────────────────────────────────────────────────
 
-  void _injectHighlightSupport() {
-    _webController.runJavaScript(r'''
+  void _onTapFrag(String fragId) {
+    final beginTime = _smilIndex?.beginForFrag(fragId);
+    if (beginTime == null) return;
+    _seekToAbsolute(beginTime);
+    if (!_isPlaying) _epubPlayer?.play();
+  }
+
+  // ─── WebView navigation ───────────────────────────────────────────────
+
+  void _navigateToPath(String? absPath) {
+    if (absPath == null) return;
+    if (!File(absPath).existsSync()) {
+      debugPrint('[EpubReader] Content file not found: $absPath');
+      return;
+    }
+    _webReady = false;
+    _loadedContentPath = absPath;
+    _webController.loadFile(absPath);
+  }
+
+  // ─── WebView JS injection ─────────────────────────────────────────────
+
+  void _injectPageSetup() {
+    final cs = _cs ?? Theme.of(context).colorScheme;
+    final surface = _hexColor(cs.surface);
+    final onSurface = _hexColor(cs.onSurface);
+    final primary = _hexColor(cs.primary);
+    final highlight = _hexColor(cs.primaryContainer);
+    final activeClass = _epub?.activeClass ?? '-epub-media-overlay-active';
+
+    _webController.runJavaScript('''
 (function() {
-  if (window.__smilReady) return;
-  window.__smilReady = true;
-
+  // ─── Theme CSS ──────────────────────────────────────────────────────
+  var styleId = '__smil_style';
+  var existing = document.getElementById(styleId);
+  if (existing) existing.remove();
   var style = document.createElement('style');
+  style.id = styleId;
   style.textContent = `
-    .smil-active {
-      background-color: rgba(255, 214, 0, 0.45);
+    html { color-scheme: light !important; }
+    body {
+      background-color: ${surface} !important;
+      color: ${onSurface} !important;
+      font-size: 18px;
+      line-height: 1.7;
+      padding: 16px 20px 32px;
+      max-width: 720px;
+      margin: 0 auto;
+      -webkit-text-size-adjust: none;
+    }
+    a { color: ${primary}; }
+    img, svg { max-width: 100%; height: auto; }
+    .${activeClass} {
+      background-color: ${highlight} !important;
       border-radius: 3px;
       transition: background-color 0.15s ease;
+      outline: none;
     }
   `;
   document.head.appendChild(style);
 
+  // ─── Highlight function ─────────────────────────────────────────────
   window.smilHighlight = function(id) {
-    var prev = document.querySelector('.smil-active');
-    if (prev) prev.classList.remove('smil-active');
+    var prev = document.querySelector('.$activeClass');
+    if (prev) prev.classList.remove('$activeClass');
     var el = document.getElementById(id);
     if (el) {
-      el.classList.add('smil-active');
+      el.classList.add('$activeClass');
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   };
+
+  // ─── Tap-to-seek ────────────────────────────────────────────────────
+  document.addEventListener('click', function(e) {
+    var el = e.target;
+    // Walk up to find the nearest element with an id
+    for (var i = 0; i < 6 && el; i++) {
+      if (el.id) { window.SmilTap.postMessage(el.id); return; }
+      el = el.parentElement;
+    }
+  }, true);
 })();
 ''');
   }
 
   void _applyHighlight(String fragId) {
-    _webController.runJavaScript("smilHighlight('${_escapeJs(fragId)}');");
+    _webController.runJavaScript(
+        "if(window.smilHighlight)smilHighlight('${_escapeJs(fragId)}');");
   }
 
   String _escapeJs(String s) =>
       s.replaceAll(r'\', r'\\').replaceAll("'", r"\'");
 
-  // ─── Spine navigation UI ──────────────────────────────────────────────
+  String _hexColor(Color c) {
+    final r = (c.r * 255).round().toRadixString(16).padLeft(2, '0');
+    final g = (c.g * 255).round().toRadixString(16).padLeft(2, '0');
+    final b = (c.b * 255).round().toRadixString(16).padLeft(2, '0');
+    return '#$r$g$b';
+  }
+
+  // ─── Spine navigation ─────────────────────────────────────────────────
 
   List<String> get _contentPaths {
     final epub = _epub;
@@ -274,28 +434,35 @@ class _EpubReaderScreenState extends State<EpubReaderScreen> {
         .toList();
   }
 
-  void _goToPrevPage() {
+  void _goToPrev() {
     final paths = _contentPaths;
     final idx = paths.indexOf(_loadedContentPath ?? '');
     if (idx > 0) _navigateToPath(paths[idx - 1]);
   }
 
-  void _goToNextPage() {
+  void _goToNext() {
     final paths = _contentPaths;
     final idx = paths.indexOf(_loadedContentPath ?? '');
     if (idx >= 0 && idx < paths.length - 1) _navigateToPath(paths[idx + 1]);
   }
 
-  bool get _hasPrev {
-    final paths = _contentPaths;
-    final idx = paths.indexOf(_loadedContentPath ?? '');
-    return idx > 0;
+  // ─── Position persistence ─────────────────────────────────────────────
+
+  void _savePosition() {
+    ScopedPrefs.setInt('epub_pos_${widget.itemId}', _position.inMilliseconds);
+    ScopedPrefs.setDouble('epub_speed_${widget.itemId}', _speed);
   }
 
-  bool get _hasNext {
-    final paths = _contentPaths;
-    final idx = paths.indexOf(_loadedContentPath ?? '');
-    return idx >= 0 && idx < paths.length - 1;
+  // ─── Formatting ───────────────────────────────────────────────────────
+
+  String _fmt(Duration d) {
+    if (d.inHours > 0) {
+      return '${d.inHours}:'
+          '${d.inMinutes.remainder(60).toString().padLeft(2, '0')}:'
+          '${d.inSeconds.remainder(60).toString().padLeft(2, '0')}';
+    }
+    return '${d.inMinutes.remainder(60).toString().padLeft(2, '0')}:'
+        '${d.inSeconds.remainder(60).toString().padLeft(2, '0')}';
   }
 
   // ─── Build ────────────────────────────────────────────────────────────
@@ -303,108 +470,234 @@ class _EpubReaderScreenState extends State<EpubReaderScreen> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final hasAudio = _epub?.hasMediaOverlays == true && _epubPlayer != null;
+
+    // Derive section label for app bar
+    String sectionLabel = '';
+    if (_epub != null && _loadedContentPath != null) {
+      final paths = _contentPaths;
+      final idx = paths.indexOf(_loadedContentPath!);
+      if (idx >= 0) sectionLabel = 'Section ${idx + 1} of ${paths.length}';
+    }
 
     return Scaffold(
       backgroundColor: cs.surface,
       appBar: AppBar(
-        title: Text(
-          widget.bookTitle,
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-          overflow: TextOverflow.ellipsis,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(widget.bookTitle,
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                overflow: TextOverflow.ellipsis),
+            if (sectionLabel.isNotEmpty)
+              Text(sectionLabel,
+                  style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant)),
+          ],
         ),
         backgroundColor: cs.surface,
         foregroundColor: cs.onSurface,
         elevation: 0,
         actions: [
-          if (_smilIndex != null && !_smilIndex!.isEmpty)
-            Padding(
-              padding: const EdgeInsets.only(right: 12),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.sync_rounded, size: 14, color: Colors.amber.shade700),
-                  const SizedBox(width: 4),
-                  Text('Read Along',
-                      style: TextStyle(fontSize: 12, color: Colors.amber.shade700)),
-                ],
-              ),
-            ),
+          if (hasAudio) _buildSpeedButton(cs),
+          IconButton(
+            icon: const Icon(Icons.chevron_left_rounded),
+            tooltip: 'Previous section',
+            onPressed: () {
+              final paths = _contentPaths;
+              final idx = paths.indexOf(_loadedContentPath ?? '');
+              if (idx > 0) _goToPrev();
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.chevron_right_rounded),
+            tooltip: 'Next section',
+            onPressed: () {
+              final paths = _contentPaths;
+              final idx = paths.indexOf(_loadedContentPath ?? '');
+              if (idx >= 0 && idx < paths.length - 1) _goToNext();
+            },
+          ),
         ],
       ),
       body: _buildBody(cs),
-      bottomNavigationBar: _loading || _error != null ? null : _buildNavBar(cs),
+      bottomNavigationBar: hasAudio ? _buildPlayerBar(cs) : null,
     );
   }
 
   Widget _buildBody(ColorScheme cs) {
     if (_loading) {
       return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const CircularProgressIndicator(),
-            const SizedBox(height: 16),
-            Text('Loading epub…', style: TextStyle(color: cs.onSurfaceVariant)),
-          ],
-        ),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const CircularProgressIndicator(),
+          const SizedBox(height: 16),
+          Text('Loading…', style: TextStyle(color: cs.onSurfaceVariant)),
+        ]),
       );
     }
-
     if (_error != null) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.menu_book_rounded, size: 48, color: cs.onSurfaceVariant),
-              const SizedBox(height: 16),
-              Text(_error!,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: cs.onSurfaceVariant)),
-            ],
-          ),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.menu_book_rounded, size: 48, color: cs.onSurfaceVariant),
+            const SizedBox(height: 16),
+            Text(_error!,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: cs.onSurfaceVariant)),
+          ]),
         ),
       );
     }
-
     return WebViewWidget(controller: _webController);
   }
 
-  Widget _buildNavBar(ColorScheme cs) {
+  // ─── Player bar ───────────────────────────────────────────────────────
+
+  Widget _buildPlayerBar(ColorScheme cs) {
+    final total = _totalDuration.inMilliseconds.toDouble();
+    final current = _seeking
+        ? _seekDragMs
+        : _position.inMilliseconds.toDouble().clamp(0, total > 0 ? total : 1);
+
     return SafeArea(
+      top: false,
       child: Container(
-        height: 56,
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
         decoration: BoxDecoration(
           color: cs.surface,
           border: Border(top: BorderSide(color: cs.outlineVariant, width: 0.5)),
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            IconButton(
-              icon: const Icon(Icons.chevron_left_rounded),
-              onPressed: _hasPrev ? _goToPrevPage : null,
-              color: cs.onSurface,
-              disabledColor: cs.onSurface.withValues(alpha: 0.25),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          // ── Seek row ──────────────────────────────────────────────────
+          Row(children: [
+            SizedBox(
+              width: 44,
+              child: Text(
+                _fmt(_seeking
+                    ? Duration(milliseconds: _seekDragMs.round())
+                    : _position),
+                style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+                textAlign: TextAlign.center,
+              ),
             ),
-            // Current page indicator
-            if (_epub != null) Builder(builder: (_) {
-              final paths = _contentPaths;
-              final idx = paths.indexOf(_loadedContentPath ?? '');
-              final total = paths.length;
-              return Text(
-                idx >= 0 ? 'Section ${idx + 1} of $total' : '',
-                style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
-              );
-            }),
-            IconButton(
-              icon: const Icon(Icons.chevron_right_rounded),
-              onPressed: _hasNext ? _goToNextPage : null,
-              color: cs.onSurface,
-              disabledColor: cs.onSurface.withValues(alpha: 0.25),
+            Expanded(
+              child: SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 3,
+                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                  activeTrackColor: cs.primary,
+                  inactiveTrackColor: cs.onSurface.withValues(alpha: 0.15),
+                  thumbColor: cs.primary,
+                  overlayColor: cs.primary.withValues(alpha: 0.12),
+                ),
+                child: Slider(
+                  value: current,
+                  min: 0,
+                  max: total > 0 ? total : 1,
+                  onChangeStart: (v) => setState(() {
+                    _seeking = true;
+                    _seekDragMs = v;
+                  }),
+                  onChanged: (v) => setState(() => _seekDragMs = v),
+                  onChangeEnd: (v) {
+                    setState(() { _seeking = false; });
+                    _seekToAbsolute(Duration(milliseconds: v.round()));
+                  },
+                ),
+              ),
             ),
-          ],
+            SizedBox(
+              width: 44,
+              child: Text(
+                _fmt(_totalDuration),
+                style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ]),
+
+          // ── Controls row ──────────────────────────────────────────────
+          Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+            // Skip back 15s
+            IconButton(
+              icon: const Icon(Icons.replay_10_rounded),
+              iconSize: 28,
+              color: cs.onSurface,
+              tooltip: 'Skip back 15s',
+              onPressed: () {
+                final newPos = _position - const Duration(seconds: 15);
+                _seekToAbsolute(newPos < Duration.zero ? Duration.zero : newPos);
+              },
+            ),
+
+            // Play / Pause
+            Container(
+              width: 52, height: 52,
+              decoration: BoxDecoration(
+                color: cs.primary,
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                icon: Icon(_isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded),
+                iconSize: 28,
+                color: cs.onPrimary,
+                onPressed: () {
+                  if (_isPlaying) {
+                    _epubPlayer?.pause();
+                  } else {
+                    _epubPlayer?.play();
+                  }
+                },
+              ),
+            ),
+
+            // Skip forward 30s
+            IconButton(
+              icon: const Icon(Icons.forward_30_rounded),
+              iconSize: 28,
+              color: cs.onSurface,
+              tooltip: 'Skip forward 30s',
+              onPressed: () {
+                final newPos = _position + const Duration(seconds: 30);
+                final max = _totalDuration;
+                _seekToAbsolute(newPos > max ? max : newPos);
+              },
+            ),
+          ]),
+        ]),
+      ),
+    );
+  }
+
+  Widget _buildSpeedButton(ColorScheme cs) {
+    return PopupMenuButton<double>(
+      initialValue: _speed,
+      tooltip: 'Playback speed',
+      onSelected: (v) async {
+        setState(() => _speed = v);
+        await _epubPlayer?.setSpeed(v);
+        ScopedPrefs.setDouble('epub_speed_${widget.itemId}', v);
+      },
+      itemBuilder: (_) => [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
+          .map((v) => PopupMenuItem<double>(
+                value: v,
+                child: Text('${v}×',
+                    style: TextStyle(
+                        fontWeight: _speed == v ? FontWeight.bold : FontWeight.normal,
+                        color: _speed == v ? cs.primary : null)),
+              ))
+          .toList(),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Text(
+          '${_speed}×',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: cs.onSurface,
+          ),
         ),
       ),
     );

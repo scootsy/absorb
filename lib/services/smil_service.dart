@@ -31,9 +31,28 @@ class SmilClip {
 
 /// Parsed SMIL file: a path and the list of clips it contains.
 class SmilFileInfo {
-  final String smilPath; // relative path inside the epub
+  final String smilPath; // relative path inside the epub (relative to opfDir)
   final List<SmilClip> clips;
   const SmilFileInfo({required this.smilPath, required this.clips});
+}
+
+// ─── Audio offset result ─────────────────────────────────────────────────────
+
+class SmilAudioOffsets {
+  /// Audio file basenames in playback order.
+  final List<String> order;
+
+  /// Basename → absolute start Duration (cumulative).
+  final Map<String, Duration> offsets;
+
+  /// Total duration = sum of all track durations estimated from max clipEnd.
+  final Duration total;
+
+  const SmilAudioOffsets({
+    required this.order,
+    required this.offsets,
+    required this.total,
+  });
 }
 
 // ─── Absolute clip (used internally in SmilIndex) ───────────────────────────
@@ -59,6 +78,7 @@ class SmilIndex {
   SmilIndex(this._clips);
 
   bool get isEmpty => _clips.isEmpty;
+  int get length => _clips.length;
 
   /// Returns the [SmilClip] whose absolute time range contains [position],
   /// or null if no clip matches.
@@ -78,6 +98,15 @@ class SmilIndex {
     }
     return null;
   }
+
+  /// Returns the absolute begin time for the clip with [fragId],
+  /// or null if not found. Used for tap-to-seek.
+  Duration? beginForFrag(String fragId) {
+    for (final ac in _clips) {
+      if (ac.clip.fragId == fragId) return ac.absoluteBegin;
+    }
+    return null;
+  }
 }
 
 // ─── SmilService ─────────────────────────────────────────────────────────────
@@ -85,33 +114,50 @@ class SmilIndex {
 class SmilService {
   // ── Public API ──────────────────────────────────────────────────────────
 
-  /// Build a [SmilIndex] from the parsed SMIL files and the server's track info.
+  /// Compute audio file order and cumulative start offsets from SMIL data.
   ///
-  /// [audioTrackBasenames] — file basenames in playback order, e.g. `['ch1.mp3', 'ch2.mp3']`
-  /// [audioTrackDurations] — durations in seconds, same order as basenames
-  static SmilIndex buildIndex({
-    required List<SmilFileInfo> smilFiles,
-    required List<String> audioTrackBasenames,
-    required List<double> audioTrackDurations,
-  }) {
-    // Map: lowercase basename -> absolute start Duration
-    final offsetMap = <String, Duration>{};
-    var acc = Duration.zero;
-    for (int i = 0; i < audioTrackBasenames.length; i++) {
-      final name = audioTrackBasenames[i].toLowerCase();
-      offsetMap[name] = acc;
-      acc += Duration(milliseconds: (audioTrackDurations[i] * 1000).round());
+  /// Durations are estimated as the maximum [clipEnd] seen for each audio
+  /// file (Option C). This matches real durations closely for Storyteller
+  /// EPUBs where the last SMIL clip ends very close to the audio file's end.
+  static SmilAudioOffsets computeAudioOffsets(List<SmilFileInfo> smilFiles) {
+    final order = <String>[];
+    final maxClipEnd = <String, Duration>{};
+
+    for (final sf in smilFiles) {
+      for (final clip in sf.clips) {
+        final base = p.basename(clip.audioSrc).toLowerCase();
+        if (!order.contains(base)) order.add(base);
+        final current = maxClipEnd[base] ?? Duration.zero;
+        if (clip.clipEnd > current) maxClipEnd[base] = clip.clipEnd;
+      }
     }
 
+    final offsets = <String, Duration>{};
+    var acc = Duration.zero;
+    for (final base in order) {
+      offsets[base] = acc;
+      acc += maxClipEnd[base] ?? Duration.zero;
+    }
+
+    return SmilAudioOffsets(order: order, offsets: offsets, total: acc);
+  }
+
+  /// Build a [SmilIndex] from parsed SMIL files.
+  ///
+  /// Audio track durations are estimated from the SMIL data itself
+  /// (max clipEnd per audio file), so no external track info is needed.
+  static SmilIndex buildIndex(List<SmilFileInfo> smilFiles) {
+    final ao = computeAudioOffsets(smilFiles);
+
     final absolute = <_AbsoluteClip>[];
-    for (final smilFile in smilFiles) {
-      for (final clip in smilFile.clips) {
-        final audioBase = p.basename(clip.audioSrc).toLowerCase();
-        final trackOffset = offsetMap[audioBase];
-        if (trackOffset == null) continue; // can't map — skip
+    for (final sf in smilFiles) {
+      for (final clip in sf.clips) {
+        final base = p.basename(clip.audioSrc).toLowerCase();
+        final offset = ao.offsets[base];
+        if (offset == null) continue;
         absolute.add(_AbsoluteClip(
-          absoluteBegin: trackOffset + clip.clipBegin,
-          absoluteEnd: trackOffset + clip.clipEnd,
+          absoluteBegin: offset + clip.clipBegin,
+          absoluteEnd: offset + clip.clipEnd,
           clip: clip,
         ));
       }
@@ -122,8 +168,6 @@ class SmilService {
   }
 
   /// Parse a SMIL XML document and return all [SmilClip]s.
-  ///
-  /// [smilContent] — raw XML string of the SMIL file.
   static List<SmilClip> parseSmilFile(String smilContent) {
     final clips = <SmilClip>[];
     final XmlDocument doc;

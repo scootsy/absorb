@@ -49,9 +49,15 @@ class EpubInfo {
   /// Parsed SMIL data (one entry per SMIL file, in spine order).
   final List<SmilFileInfo> smilFiles;
 
-  /// Audio file basenames in the order they appear via SMIL clips.
-  /// Used to correlate with Audiobookshelf server tracks.
-  final List<String> audioFileBasenames;
+  /// Audio file basenames in playback order (derived from SMIL clips).
+  final List<String> audioFilesInOrder;
+
+  /// Map of audio file basename → absolute filesystem path (after extraction).
+  final Map<String, String> extractedAudioPaths;
+
+  /// CSS class name to apply for the active/highlighted element.
+  /// From OPF `<meta property="media:active-class">`, or fallback.
+  final String activeClass;
 
   const EpubInfo({
     required this.extractDir,
@@ -59,8 +65,13 @@ class EpubInfo {
     required this.manifest,
     required this.spineIds,
     required this.smilFiles,
-    required this.audioFileBasenames,
+    required this.audioFilesInOrder,
+    required this.extractedAudioPaths,
+    required this.activeClass,
   });
+
+  /// True when this epub contains SMIL media overlays for read-along.
+  bool get hasMediaOverlays => smilFiles.isNotEmpty;
 
   /// Resolve a manifest href to an absolute filesystem path.
   String resolveHref(String href) => p.normalize(p.join(opfDir, href));
@@ -76,27 +87,15 @@ class EpubInfo {
     }
     return null;
   }
-
-  /// Absolute path of the content document that contains [fragId].
-  /// Searches SMIL clips for the first matching fragment.
-  String? contentPathForFrag(String fragId) {
-    for (final smilFile in smilFiles) {
-      for (final clip in smilFile.clips) {
-        if (clip.fragId == fragId) {
-          // contentSrc is relative to the SMIL file's dir inside opfDir
-          final smilDir = p.dirname(smilFile.smilPath);
-          return p.normalize(p.join(opfDir, smilDir, clip.contentSrc));
-        }
-      }
-    }
-    return null;
-  }
 }
 
 // ─── EpubService ─────────────────────────────────────────────────────────
 
 class EpubService {
   /// Download (if not cached) and parse an epub file.
+  ///
+  /// Uses [getApplicationSupportDirectory] so the cache survives across
+  /// app launches and is not purged by the OS (unlike temp).
   ///
   /// Returns null on any failure.
   static Future<EpubInfo?> loadEpub({
@@ -106,10 +105,10 @@ class EpubService {
     required Map<String, String> headers,
   }) async {
     try {
-      final cacheDir = await getTemporaryDirectory();
+      final supportDir = await getApplicationSupportDirectory();
       final safeId = itemId.replaceAll(RegExp(r'[^\w]'), '_');
-      final epubFile = File(p.join(cacheDir.path, '$safeId.epub'));
-      final extractDir = Directory(p.join(cacheDir.path, '${safeId}_epub'));
+      final epubFile = File(p.join(supportDir.path, '$safeId.epub'));
+      final extractDir = Directory(p.join(supportDir.path, '${safeId}_epub'));
 
       // ── Download ────────────────────────────────────────────────────────
       if (!epubFile.existsSync()) {
@@ -175,8 +174,7 @@ class EpubService {
       }
 
       final containerDoc = XmlDocument.parse(containerFile.readAsStringSync());
-      final rootfileEl =
-          containerDoc.findAllElements('rootfile').firstOrNull;
+      final rootfileEl = containerDoc.findAllElements('rootfile').firstOrNull;
       if (rootfileEl == null) {
         debugPrint('[EpubService] No rootfile element');
         return null;
@@ -196,7 +194,21 @@ class EpubService {
       final opfDoc = XmlDocument.parse(opfFile.readAsStringSync());
       final opfDir = p.dirname(opfAbsPath);
 
-      // Build manifest
+      // ── OPF metadata: active-class ────────────────────────────────────
+      String activeClass = '-epub-media-overlay-active';
+      for (final meta in opfDoc.findAllElements('meta')) {
+        final prop = meta.getAttribute('property') ?? '';
+        if (prop == 'media:active-class') {
+          final val = meta.innerText.trim();
+          if (val.isNotEmpty) {
+            // Strip a leading '.' if the author included the selector dot
+            activeClass = val.startsWith('.') ? val.substring(1) : val;
+          }
+          break;
+        }
+      }
+
+      // ── Build manifest ────────────────────────────────────────────────
       final manifest = <EpubManifestItem>[];
       for (final item in opfDoc.findAllElements('item')) {
         manifest.add(EpubManifestItem(
@@ -207,7 +219,17 @@ class EpubService {
         ));
       }
 
-      // Build spine
+      // Build map of audio basenames → extracted abs paths (from manifest)
+      final extractedAudioPaths = <String, String>{};
+      for (final item in manifest) {
+        if (!item.isAudio) continue;
+        final absPath = p.normalize(p.join(opfDir, item.href));
+        if (File(absPath).existsSync()) {
+          extractedAudioPaths[p.basename(absPath)] = absPath;
+        }
+      }
+
+      // ── Build spine ───────────────────────────────────────────────────
       final spineIds = <String>[];
       for (final itemref in opfDoc.findAllElements('itemref')) {
         final idref = itemref.getAttribute('idref');
@@ -216,7 +238,7 @@ class EpubService {
 
       // ── Parse SMIL files (in spine overlay order) ─────────────────────
       final smilFiles = <SmilFileInfo>[];
-      final audioBasenames = <String>[];
+      final audioFilesInOrder = <String>[];
       final processedSmilIds = <String>{};
 
       for (final spineId in spineIds) {
@@ -227,8 +249,7 @@ class EpubService {
         if (overlayId == null || processedSmilIds.contains(overlayId)) continue;
         processedSmilIds.add(overlayId);
 
-        final smilItem =
-            manifest.where((m) => m.id == overlayId).firstOrNull;
+        final smilItem = manifest.where((m) => m.id == overlayId).firstOrNull;
         if (smilItem == null) continue;
 
         final smilAbsPath = p.normalize(p.join(opfDir, smilItem.href));
@@ -240,12 +261,14 @@ class EpubService {
 
         for (final clip in clips) {
           final base = p.basename(clip.audioSrc);
-          if (!audioBasenames.contains(base)) audioBasenames.add(base);
+          if (!audioFilesInOrder.contains(base)) audioFilesInOrder.add(base);
         }
       }
 
       debugPrint('[EpubService] Loaded: ${smilFiles.length} SMIL files, '
-          '${audioBasenames.length} audio files');
+          '${audioFilesInOrder.length} audio files, '
+          'activeClass="$activeClass", '
+          'hasMediaOverlays=${smilFiles.isNotEmpty}');
 
       return EpubInfo(
         extractDir: extractDir.path,
@@ -253,7 +276,9 @@ class EpubService {
         manifest: manifest,
         spineIds: spineIds,
         smilFiles: smilFiles,
-        audioFileBasenames: audioBasenames,
+        audioFilesInOrder: audioFilesInOrder,
+        extractedAudioPaths: extractedAudioPaths,
+        activeClass: activeClass,
       );
     } catch (e, st) {
       debugPrint('[EpubService] Error: $e\n$st');
@@ -263,10 +288,10 @@ class EpubService {
 
   /// Delete the cached epub and extracted directory for [itemId].
   static Future<void> clearCache(String itemId) async {
-    final cacheDir = await getTemporaryDirectory();
+    final supportDir = await getApplicationSupportDirectory();
     final safeId = itemId.replaceAll(RegExp(r'[^\w]'), '_');
-    final epubFile = File(p.join(cacheDir.path, '$safeId.epub'));
-    final extractDir = Directory(p.join(cacheDir.path, '${safeId}_epub'));
+    final epubFile = File(p.join(supportDir.path, '$safeId.epub'));
+    final extractDir = Directory(p.join(supportDir.path, '${safeId}_epub'));
     if (epubFile.existsSync()) epubFile.deleteSync();
     if (extractDir.existsSync()) extractDir.deleteSync(recursive: true);
   }
