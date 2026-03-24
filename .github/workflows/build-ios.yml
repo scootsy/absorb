@@ -1,4 +1,4 @@
-name: Build iOS IPA (unsigned, non-installable)
+name: Build iOS IPA (unsigned, sideloadable package)
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ on:
 
 jobs:
   build-ios:
-    name: Build unsigned iOS archive (CI validation only)
+    name: Build unsigned iOS archive + sideloadable IPA
     runs-on: macos-latest
     timeout-minutes: 45
 
@@ -41,11 +41,29 @@ jobs:
       - name: Build iOS archive (no codesign)
         run: flutter build ipa --release --no-codesign
 
-      - name: Upload unsigned iOS build outputs (not for sideloading)
+      - name: Create sideloadable IPA from Runner.app
+        run: |
+          APP_PATH="$(find build/ios/archive -type d -name Runner.app | head -n 1)"
+          if [ -z "$APP_PATH" ]; then
+            echo "Runner.app not found in archive output"
+            exit 1
+          fi
+
+          mkdir -p build/ios/sideload/Payload
+          cp -R "$APP_PATH" build/ios/sideload/Payload/
+
+          mkdir -p build/ios/ipa
+          (
+            cd build/ios/sideload
+            /usr/bin/zip -qry ../ipa/Absorb-unsigned-sideloadable.ipa Payload
+          )
+
+      - name: Upload unsigned sideloadable iOS IPA
         uses: actions/upload-artifact@v6
         with:
-          name: Absorb-iOS-unsigned-noninstallable-build-output
+          name: Absorb-iOS-unsigned-sideloadable-ipa
           path: |
-            build/ios/archive/*.xcarchive
+            build/ios/ipa/Absorb-unsigned-sideloadable.ipa
             build/ios/ipa/*.ipa
+            build/ios/archive/*.xcarchive
           retention-days: 30
