@@ -589,7 +589,10 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
     final total = _totalDuration.inMilliseconds.toDouble();
     final current = _seeking
         ? _seekDragMs
-        : _position.inMilliseconds.toDouble().clamp(0, total > 0 ? total : 1);
+        : _position.inMilliseconds
+            .toDouble()
+            .clamp(0.0, total > 0 ? total : 1.0)
+            .toDouble();
 
     return SafeArea(
       top: false,
@@ -625,8 +628,8 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
                 ),
                 child: Slider(
                   value: current,
-                  min: 0,
-                  max: total > 0 ? total : 1,
+                  min: 0.0,
+                  max: total > 0 ? total : 1.0,
                   onChangeStart: (v) => setState(() {
                     _seeking = true;
                     _seekDragMs = v;
@@ -653,7 +656,7 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
           Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
             // Skip back 15s
             IconButton(
-              icon: const Icon(Icons.replay_15_rounded),
+              icon: const Icon(Icons.replay_rounded),
               iconSize: 28,
               color: cs.onSurface,
               tooltip: 'Skip back 15s',

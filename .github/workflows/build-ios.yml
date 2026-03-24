@@ -38,20 +38,12 @@ jobs:
           pod install --repo-update
           cd ..
 
-      - name: Build iOS (no codesign)
-        run: flutter build ios --release --no-codesign
-
-      - name: Create IPA
-        run: |
-          mkdir -p build/ios/ipa/Payload
-          cp -r build/ios/iphoneos/Runner.app build/ios/ipa/Payload/
-          cd build/ios/ipa
-          zip -r -9 Absorb.ipa Payload
-          cd ../../..
+      - name: Build iOS IPA (no codesign)
+        run: flutter build ipa --release --no-codesign
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v6
         with:
           name: Absorb-iOS-unsigned
-          path: build/ios/ipa/Absorb.ipa
+          path: build/ios/ipa/*.ipa
           retention-days: 30
