@@ -206,18 +206,19 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
           'Make sure the book has an EPUB file and is accessible on your Audiobookshelf server.');
       return;
     }
+    final epubData = epub;
 
     SmilIndex? smilIndex;
     SmilAudioOffsets? audioOffsets;
     final fragSmilDir = <String, String>{};
 
-    if (epub.hasMediaOverlays) {
-      audioOffsets = SmilService.computeAudioOffsets(epub.smilFiles);
-      smilIndex = SmilService.buildIndex(epub.smilFiles);
+    if (epubData.hasMediaOverlays) {
+      audioOffsets = SmilService.computeAudioOffsets(epubData.smilFiles);
+      smilIndex = SmilService.buildIndex(epubData.smilFiles);
       debugPrint('[EpubReader] SMIL index: ${smilIndex.length} clips, '
           'total ${audioOffsets.total.inSeconds}s');
       // Pre-build fragId → smilDir map to avoid O(n·m) scan on every tick.
-      for (final sf in epub.smilFiles) {
+      for (final sf in epubData.smilFiles) {
         final dir = p.dirname(sf.smilPath);
         for (final clip in sf.clips) {
           fragSmilDir[clip.fragId] = dir;
@@ -228,15 +229,15 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
     }
 
     // Pre-compute content paths list once.
-    final contentPaths = epub.spineIds
-        .map((id) => epub.itemById(id))
+    final contentPaths = epubData.spineIds
+        .map((id) => epubData.itemById(id))
         .whereType<EpubManifestItem>()
         .where((item) => item.isContent)
-        .map((item) => epub.resolveHref(item.href))
+        .map((item) => epubData.resolveHref(item.href))
         .toList();
 
     setState(() {
-      _epub = epub;
+      _epub = epubData;
       _smilIndex = smilIndex;
       _audioOffsets = audioOffsets;
       _fragSmilDir = fragSmilDir;
@@ -246,10 +247,10 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
     });
 
     // Load first content page
-    _navigateToPath(epub.firstContentPath);
+    _navigateToPath(epubData.firstContentPath);
 
     // Start EPUB audio player if we have overlays
-    if (epub.hasMediaOverlays) await _startEpubPlayer(epub, audioOffsets!);
+    if (epubData.hasMediaOverlays) await _startEpubPlayer(epubData, audioOffsets!);
   }
 
   void _setError(String msg) {
