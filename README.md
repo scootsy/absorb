@@ -66,6 +66,8 @@ Absorb supports Android Auto for browsing and listening from your car. To use it
 
 Absorb is now available on iOS via TestFlight, still closed for now as I get it more ready for iOS users. Core functionality works, but some features are still Android-only or in progress.
 
+> **Important:** GitHub Actions iOS artifacts are built with `--no-codesign` for CI verification only. They are missing signing/provisioning metadata required for sideloading, so use TestFlight for installs.
+
 ### Working
 If any of these aren't working as expected, please [open an issue](../../issues).
 
