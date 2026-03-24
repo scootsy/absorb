@@ -155,8 +155,12 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
           _injectPageSetup();
           if (_activeClip != null) _applyHighlight(_activeClip!.fragId);
         },
-        onWebResourceError: (err) =>
-            debugPrint('[EpubReader] WebView error: ${err.description}'),
+        onWebResourceError: (err) {
+          debugPrint('[EpubReader] WebView error: ${err.description}');
+          if (err.isForMainFrame == true) {
+            _setError('Failed to display eBook content.\n${err.description}');
+          }
+        },
       ));
   }
 
@@ -376,9 +380,13 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
   // ─── WebView navigation ───────────────────────────────────────────────
 
   void _navigateToPath(String? absPath) {
-    if (absPath == null) return;
+    if (absPath == null) {
+      _setError('This eBook has no readable content.');
+      return;
+    }
     if (!File(absPath).existsSync()) {
       debugPrint('[EpubReader] Content file not found: $absPath');
+      _setError('eBook content file not found.\nTry closing and re-opening the reader.');
       return;
     }
     _webReady = false;
