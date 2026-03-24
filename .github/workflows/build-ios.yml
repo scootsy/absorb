@@ -12,7 +12,7 @@ on:
 
 jobs:
   build-ios:
-    name: Build unsigned iOS IPA
+    name: Build unsigned iOS archive
     runs-on: macos-latest
     timeout-minutes: 45
 
@@ -38,12 +38,14 @@ jobs:
           pod install --repo-update
           cd ..
 
-      - name: Build iOS IPA (no codesign)
+      - name: Build iOS archive (no codesign)
         run: flutter build ipa --release --no-codesign
 
-      - name: Upload IPA artifact
+      - name: Upload unsigned iOS build outputs
         uses: actions/upload-artifact@v6
         with:
-          name: Absorb-iOS-unsigned
-          path: build/ios/ipa/*.ipa
+          name: Absorb-iOS-unsigned-build-output
+          path: |
+            build/ios/archive/*.xcarchive
+            build/ios/ipa/*.ipa
           retention-days: 30
