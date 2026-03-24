@@ -30,9 +30,9 @@ import AVFoundation
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
 
-    guard let controller = window?.rootViewController as? FlutterViewController else { return }
+    let messenger = engineBridge.applicationRegistrar.messenger()
     let channel = FlutterMethodChannel(name: "com.absorb.audio_output",
-                                       binaryMessenger: controller.binaryMessenger)
+                                       binaryMessenger: messenger)
     channel.setMethodCallHandler { [weak self] (call, result) in
       switch call.method {
       case "getAudioOutputDevices":
@@ -51,7 +51,7 @@ import AVFoundation
     }
 
     let storageChannel = FlutterMethodChannel(name: "com.absorb.storage",
-                                              binaryMessenger: controller.binaryMessenger)
+                                              binaryMessenger: messenger)
     storageChannel.setMethodCallHandler { (call, result) in
       switch call.method {
       case "getDeviceStorage":
@@ -68,7 +68,7 @@ import AVFoundation
     }
 
     let eqChannel = FlutterMethodChannel(name: "com.absorb.equalizer",
-                                          binaryMessenger: controller.binaryMessenger)
+                                         binaryMessenger: messenger)
     eqChannel.setMethodCallHandler { [weak self] (call, result) in
       switch call.method {
       case "isBluetoothAudioConnected":
@@ -91,7 +91,6 @@ import AVFoundation
   private func getAudioOutputDevices() -> [[String: Any]] {
     let session = AVAudioSession.sharedInstance()
     let currentOutputs = session.currentRoute.outputs
-    let currentPortUIDs = Set(currentOutputs.map { $0.uid })
 
     var devices: [[String: Any]] = []
     var seenTypes = Set<String>()
@@ -110,7 +109,7 @@ import AVFoundation
     }
 
     // Add available outputs that aren't current
-    for output in session.availableInputs ?? [] {
+    for _ in session.availableInputs ?? [] {
       // availableInputs on iOS - for Bluetooth HFP, the input port maps to output too
     }
 
