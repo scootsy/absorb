@@ -175,7 +175,7 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
     }
 
     // Pause the main audiobook player if it's running; resume it on dispose.
-    _mainPlayer = context.read<AudioPlayerService>();
+    _mainPlayer = AudioPlayerService();
     _mainPlayerWasPlaying = _mainPlayer!.isPlaying;
     if (_mainPlayerWasPlaying) _mainPlayer!.pause();
 
