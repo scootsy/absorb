@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:archive/archive.dart';
 import 'package:flutter/foundation.dart';
@@ -97,12 +98,16 @@ class EpubService {
   /// Uses [getApplicationSupportDirectory] so the cache survives across
   /// app launches and is not purged by the OS (unlike temp).
   ///
+  /// [onStatus] is called with a human-readable status string at each stage
+  /// (downloading, extracting, parsing) so the UI can show progress.
+  ///
   /// Returns null on any failure.
   static Future<EpubInfo?> loadEpub({
     required String itemId,
     required String fileIno,
     required String baseUrl,
     required Map<String, String> headers,
+    void Function(String status)? onStatus,
   }) async {
     try {
       final supportDir = await getApplicationSupportDirectory();
@@ -115,6 +120,7 @@ class EpubService {
 
       // ── Download ────────────────────────────────────────────────────────
       if (!epubFile.existsSync()) {
+        onStatus?.call('Downloading eBook…');
         final cleanBase =
             baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
         final url = '$cleanBase/api/items/$itemId/file/$fileIno';
@@ -124,7 +130,8 @@ class EpubService {
         headers.forEach((k, v) => request.headers[k] = v);
         final client = http.Client();
         try {
-          var response = await client.send(request);
+          var response = await client.send(request)
+              .timeout(const Duration(seconds: 30));
           var redirects = 0;
           while ([301, 302, 303, 307, 308].contains(response.statusCode) &&
               redirects < 5) {
@@ -134,7 +141,8 @@ class EpubService {
             final rReq = http.Request('GET', redirectUri);
             headers.forEach((k, v) => rReq.headers[k] = v);
             rReq.followRedirects = false;
-            response = await client.send(rReq);
+            response = await client.send(rReq)
+                .timeout(const Duration(seconds: 30));
             redirects++;
           }
           if (response.statusCode != 200) {
@@ -147,15 +155,19 @@ class EpubService {
             return null;
           }
           final sink = epubFile.openWrite();
-          await response.stream.pipe(sink);
+          await response.stream.pipe(sink)
+              .timeout(const Duration(minutes: 5));
           await sink.close();
         } finally {
           client.close();
         }
+      } else {
+        onStatus?.call('Loading cached eBook…');
       }
 
       // ── Extract ─────────────────────────────────────────────────────────
       if (!extractDir.existsSync()) {
+        onStatus?.call('Extracting…');
         // Clean up any leftover temp dir from a previous failed extraction.
         if (tmpExtractDir.existsSync()) tmpExtractDir.deleteSync(recursive: true);
         tmpExtractDir.createSync(recursive: true);
@@ -169,6 +181,8 @@ class EpubService {
           rethrow;
         }
       }
+
+      onStatus?.call('Parsing…');
 
       // ── Parse container.xml ─────────────────────────────────────────────
       final containerFile =
