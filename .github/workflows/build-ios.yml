@@ -1,4 +1,4 @@
-name: Build iOS IPA
+name: Build iOS IPA (unsigned, non-installable)
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ on:
 
 jobs:
   build-ios:
-    name: Build unsigned iOS archive
+    name: Build unsigned iOS archive (CI validation only)
     runs-on: macos-latest
     timeout-minutes: 45
 
@@ -41,10 +41,10 @@ jobs:
       - name: Build iOS archive (no codesign)
         run: flutter build ipa --release --no-codesign
 
-      - name: Upload unsigned iOS build outputs
+      - name: Upload unsigned iOS build outputs (not for sideloading)
         uses: actions/upload-artifact@v6
         with:
-          name: Absorb-iOS-unsigned-build-output
+          name: Absorb-iOS-unsigned-noninstallable-build-output
           path: |
             build/ios/archive/*.xcarchive
             build/ios/ipa/*.ipa
