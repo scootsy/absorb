@@ -52,6 +52,7 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
   // ── Loading ────────────────────────────────────────────────────────────
   bool _loading = true;
   String? _error;
+  String _loadStatus = 'Loading…';
 
   // ── Epub / SMIL ────────────────────────────────────────────────────────
   EpubInfo? _epub;
@@ -154,8 +155,12 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
           _injectPageSetup();
           if (_activeClip != null) _applyHighlight(_activeClip!.fragId);
         },
-        onWebResourceError: (err) =>
-            debugPrint('[EpubReader] WebView error: ${err.description}'),
+        onWebResourceError: (err) {
+          debugPrint('[EpubReader] WebView error: ${err.description}');
+          if (err.isForMainFrame == true) {
+            _setError('Failed to display eBook content.\n${err.description}');
+          }
+        },
       ));
   }
 
@@ -174,19 +179,31 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
     _mainPlayerWasPlaying = _mainPlayer!.isPlaying;
     if (_mainPlayerWasPlaying) _mainPlayer!.pause();
 
-    final epub = await EpubService.loadEpub(
-      itemId: widget.itemId,
-      fileIno: widget.fileIno,
-      baseUrl: api.baseUrl,
-      headers: api.mediaHeaders,
-    );
+    EpubInfo? epub;
+    try {
+      epub = await EpubService.loadEpub(
+        itemId: widget.itemId,
+        fileIno: widget.fileIno,
+        baseUrl: api.baseUrl,
+        headers: api.mediaHeaders,
+        onStatus: (status) {
+          if (mounted) setState(() => _loadStatus = status);
+        },
+      );
+    } on TimeoutException {
+      _setError('Download timed out.\nCheck your connection and try again.');
+      return;
+    } catch (e) {
+      _setError('Failed to load eBook:\n$e');
+      return;
+    }
 
     if (!mounted) return;
 
     if (epub == null) {
       _setError(
-          'Could not load the epub file.\n'
-          'Make sure the book is accessible on your Audiobookshelf server.');
+          'Could not load the eBook.\n\n'
+          'Make sure the book has an EPUB file and is accessible on your Audiobookshelf server.');
       return;
     }
 
@@ -363,9 +380,13 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
   // ─── WebView navigation ───────────────────────────────────────────────
 
   void _navigateToPath(String? absPath) {
-    if (absPath == null) return;
+    if (absPath == null) {
+      _setError('This eBook has no readable content.');
+      return;
+    }
     if (!File(absPath).existsSync()) {
       debugPrint('[EpubReader] Content file not found: $absPath');
+      _setError('eBook content file not found.\nTry closing and re-opening the reader.');
       return;
     }
     _webReady = false;
@@ -562,7 +583,7 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           const CircularProgressIndicator(),
           const SizedBox(height: 16),
-          Text('Loading…', style: TextStyle(color: cs.onSurfaceVariant)),
+          Text(_loadStatus, style: TextStyle(color: cs.onSurfaceVariant)),
         ]),
       );
     }

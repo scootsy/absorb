@@ -353,11 +353,24 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
       ],
       if (isEbookOnly)
         SizedBox(height: 52, child: FilledButton.icon(
-          onPressed: null,
-          icon: const Icon(Icons.menu_book_rounded, size: 24),
-          label: Text('eBook Only — No Audio',
-            style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
-          style: FilledButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+          onPressed: ebookFile != null ? () {
+            final ino = ebookFile['ino'] as String?;
+            if (ino == null) {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                content: Text('No eBook file found for this book'),
+                behavior: SnackBarBehavior.floating));
+              return;
+            }
+            openEpubReader(context, itemId: widget.itemId, fileIno: ino, bookTitle: title);
+          } : null,
+          icon: Icon(Icons.auto_stories_rounded, size: 24,
+            color: _coverScheme?.onPrimary ?? cs.onPrimary),
+          label: Text('Read eBook',
+            style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w600,
+              color: _coverScheme?.onPrimary ?? cs.onPrimary)),
+          style: FilledButton.styleFrom(
+            backgroundColor: accent,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
         ))
       else
       SizedBox(
@@ -590,12 +603,17 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
                 _moreItem(cs, _ebookSaved ? Icons.download_done_rounded : Icons.save_alt_rounded,
                   _ebookSaved ? 'Download eBook Again' : 'Download eBook',
                   onTap: () { Navigator.pop(ctx); _saveEbook(context, auth, ebookFile, title); }),
-              if (ebookFile != null && !lib.isOffline)
+              if (ebookFile != null)
                 _moreItem(cs, Icons.auto_stories_rounded, 'Read eBook',
                   onTap: () {
                     Navigator.pop(ctx);
                     final ino = ebookFile['ino'] as String?;
-                    if (ino == null) return;
+                    if (ino == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text('No eBook file found for this book'),
+                        behavior: SnackBarBehavior.floating));
+                      return;
+                    }
                     openEpubReader(context, itemId: widget.itemId, fileIno: ino, bookTitle: title);
                   }),
               if (progress > 0 || isFinished)
