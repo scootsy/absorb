@@ -476,7 +476,7 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
       itemBuilder: (_) => [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
           .map((v) => PopupMenuItem<double>(
                 value: v,
-                child: Text('${v}×',
+                child: Text('$v×',
                     style: TextStyle(
                         fontWeight: _speed == v ? FontWeight.bold : FontWeight.normal,
                         color: _speed == v ? cs.primary : null)),
