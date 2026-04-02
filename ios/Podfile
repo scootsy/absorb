@@ -1,3 +1,6 @@
+source 'https://cdn.cocoapods.org/'
+source 'https://github.com/readium/podspecs.git'
+
 # Minimum iOS version required by Readium SDK (flureadium)
 platform :ios, '15.0'
 

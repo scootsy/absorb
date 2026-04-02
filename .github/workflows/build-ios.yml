@@ -35,7 +35,9 @@ jobs:
       - name: Install CocoaPods
         run: |
           cd ios
-          pod install --repo-update
+          pod --version
+          pod repo list
+          pod install --repo-update --verbose
           cd ..
 
       - name: Build iOS archive (no codesign)
