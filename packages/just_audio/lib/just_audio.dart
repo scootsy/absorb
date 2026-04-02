@@ -2850,7 +2850,7 @@ Uri _encodeDataUrl(String base64Data, String mimeType) =>
 @experimental
 abstract class StreamAudioSource extends IndexedAudioSource {
   Uri? _uri;
-  StreamAudioSource({dynamic tag}) : super(tag: tag);
+  StreamAudioSource({super.tag});
 
   @override
   Future<void> _setup(AudioPlayer player) async {
@@ -2939,10 +2939,9 @@ class LockCachingAudioSource extends StreamAudioSource {
     this.uri, {
     this.headers,
     File? cacheFile,
-    dynamic tag,
+    super.tag,
   })  : cacheFile =
-            cacheFile != null ? Future.value(cacheFile) : _getCacheFile(uri),
-        super(tag: tag) {
+            cacheFile != null ? Future.value(cacheFile) : _getCacheFile(uri) {
     _init();
   }
 
