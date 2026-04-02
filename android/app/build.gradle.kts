@@ -39,7 +39,7 @@ android {
 
     defaultConfig {
         applicationId = "com.barnabas.absorb"
-        minSdk = 24
+        minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
