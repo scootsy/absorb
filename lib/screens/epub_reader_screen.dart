@@ -234,6 +234,19 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
 
   // ─── Section label ────────────────────────────────────────────────────
 
+
+  // ignore: unused_element
+  /// Navigates to a Readium [Link] while tolerating Flureadium API shape
+  /// differences across versions (some expect one arg, others two).
+  Future<void> _goByLinkCompat(Link link) async {
+    final nav = _flureadium as dynamic;
+    try {
+      await nav.goByLink(link, null);
+    } on NoSuchMethodError {
+      await nav.goByLink(link);
+    }
+  }
+
   Locator? _lastLocator;
 
   void _updateSectionLabel(Locator locator, Publication publication) {
