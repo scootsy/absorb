@@ -485,7 +485,7 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8),
         child: Text(
-          '${_speed}×',
+          '$_speed×',
           style: TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.w600,
