@@ -32,6 +32,34 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Static analysis
+        run: flutter analyze
+
+      - name: Audit Flureadium plugin registration
+        run: |
+          if [ ! -f .flutter-plugins-dependencies ]; then
+            echo "::error::.flutter-plugins-dependencies not found after flutter pub get."
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import json
+          import sys
+
+          with open(".flutter-plugins-dependencies", "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+          ios_plugins = data.get("plugins", {}).get("ios", [])
+          names = {plugin.get("name") for plugin in ios_plugins if isinstance(plugin, dict)}
+
+          if "flureadium" not in names:
+            print("::error::Flureadium is missing from iOS plugin registration.")
+            print(f"Registered iOS plugins: {sorted(n for n in names if n)}")
+            sys.exit(1)
+
+          print("Flureadium is registered for iOS.")
+          PY
+
       - name: Install CocoaPods
         run: |
           cd ios
@@ -39,6 +67,14 @@ jobs:
           pod repo list
           pod install --repo-update --verbose
           cd ..
+
+      - name: Audit Readium pod resolution
+        run: |
+          if ! grep -Eiq "flureadium|readium|r2shared|r2streamer|swift-toolkit" ios/Podfile.lock; then
+            echo "::error::Expected Flureadium/Readium pods were not resolved in ios/Podfile.lock."
+            echo "::error::Check Podfile sources and plugin podspec dependency graph."
+            exit 1
+          fi
 
       - name: Build iOS archive (no codesign)
         run: flutter build ipa --release --no-codesign
