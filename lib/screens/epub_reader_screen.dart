@@ -8,6 +8,26 @@ import '../services/audio_player_service.dart';
 import '../services/epub_service.dart';
 import '../services/scoped_prefs.dart';
 
+// ─── Reader theme constants ────────────────────────────────────────────────────
+
+const _lightBg = Color(0xFFFFFFFF);
+const _lightFg = Color(0xFF1A1A1A);
+const _darkBg  = Color(0xFF1C1C1E);
+const _darkFg  = Color(0xFFE5E5EA);
+const _sepiaBg = Color(0xFFF5E6C8);
+const _sepiaFg = Color(0xFF3B2E1E);
+
+// ─── Font options ─────────────────────────────────────────────────────────────
+
+const _fontFamilies = ['Georgia', 'Arial', 'Courier New'];
+const _fontFamilyLabels = ['Serif', 'Sans', 'Mono'];
+
+// ─── Prefs keys ───────────────────────────────────────────────────────────────
+
+const _kFontSize   = 'epub_fontSize';
+const _kFontFamily = 'epub_fontFamily';
+const _kTheme      = 'epub_theme';
+
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
 void openEpubReader(
@@ -73,9 +93,17 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
   // ── Subscriptions ──────────────────────────────────────────────────────
   StreamSubscription<ReadiumTimebasedState>? _playerStateSub;
   StreamSubscription<Locator>? _locatorSub;
+  StreamSubscription<ReadiumReaderStatus>? _readerStatusSub;
 
-  // ── Section tracking ───────────────────────────────────────────────────
+  // ── Section and progress tracking ─────────────────────────────────────
   String _sectionLabel = '';
+  double _readingProgress = 0.0;
+  Locator? _lastLocator;
+
+  // ── Reader preferences (persisted globally, not per-book) ─────────────
+  double _fontSize = 20;
+  String _fontFamily = 'Georgia';
+  String _readerTheme = 'system'; // 'system' | 'light' | 'dark' | 'sepia'
 
   // ─── Init ─────────────────────────────────────────────────────────────
 
@@ -92,6 +120,7 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
     _savePosition();
     _playerStateSub?.cancel();
     _locatorSub?.cancel();
+    _readerStatusSub?.cancel();
     _flureadium.closePublication();
     if (_mainPlayerWasPlaying) _mainPlayer?.play();
     _mainPlayer = null;
@@ -169,24 +198,45 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
 
     // Restore saved position.
     Locator? initialLocator;
-    final savedLocatorJson = await ScopedPrefs.getString('epub_locator_${widget.itemId}');
+    final savedLocatorJson =
+        await ScopedPrefs.getString('epub_locator_${widget.itemId}');
     if (savedLocatorJson != null) {
       try {
-        initialLocator = Locator.fromJson(json.decode(savedLocatorJson) as Map<String, dynamic>);
+        initialLocator = Locator.fromJson(
+            json.decode(savedLocatorJson) as Map<String, dynamic>);
       } catch (_) {}
     }
 
-    // Restore saved speed.
-    final savedSpeed = await ScopedPrefs.getDouble('epub_speed_${widget.itemId}');
+    // Restore saved speed (per-book).
+    final savedSpeed =
+        await ScopedPrefs.getDouble('epub_speed_${widget.itemId}');
     if (savedSpeed != null) _speed = savedSpeed;
 
-    // Apply theme preferences.
-    _applyThemePreferences();
+    // Restore global reader preferences.
+    final savedFontSize = await ScopedPrefs.getDouble(_kFontSize);
+    if (savedFontSize != null) _fontSize = savedFontSize;
+    final savedFontFamily = await ScopedPrefs.getString(_kFontFamily);
+    if (savedFontFamily != null) _fontFamily = savedFontFamily;
+    final savedTheme = await ScopedPrefs.getString(_kTheme);
+    if (savedTheme != null) _readerTheme = savedTheme;
 
-    // Listen for position changes.
+    // Subscribe to reader status. Preferences are applied once the native
+    // Readium view is ready — applying them before that point is a no-op.
+    _readerStatusSub =
+        _flureadium.onReaderStatusChanged.listen((status) {
+      if (status == ReadiumReaderStatus.ready && mounted) {
+        _applyPreferences();
+      }
+    });
+
+    // Listen for position / progress changes.
     _locatorSub = _flureadium.onTextLocatorChanged.listen((locator) {
-      _updateSectionLabel(locator, publication);
       _lastLocator = locator;
+      _updateSectionLabel(locator, publication);
+      final prog = locator.locations?.totalProgression;
+      if (prog != null && mounted) {
+        setState(() => _readingProgress = prog);
+      }
     });
 
     // Set up audio if this epub has media overlays.
@@ -196,12 +246,14 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
         fromLocator: initialLocator,
       );
 
-      _playerStateSub = _flureadium.onTimebasedPlayerStateChanged.listen((state) {
+      _playerStateSub =
+          _flureadium.onTimebasedPlayerStateChanged.listen((state) {
         if (!mounted) return;
         setState(() {
           _isPlaying = state.state == TimebasedState.playing;
           if (state.currentOffset != null) _position = state.currentOffset!;
-          if (state.currentDuration != null) _totalDuration = state.currentDuration!;
+          if (state.currentDuration != null)
+            _totalDuration = state.currentDuration!;
         });
       });
     }
@@ -218,23 +270,41 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
     if (mounted) setState(() { _error = msg; _loading = false; });
   }
 
-  // ─── Theme ────────────────────────────────────────────────────────────
+  // ─── Preferences ──────────────────────────────────────────────────────
 
-  void _applyThemePreferences() {
+  /// Applies current reader preferences to the Readium native view.
+  /// Must only be called after ReadiumReaderStatus.ready fires.
+  void _applyPreferences() {
+    if (!mounted) return;
     final cs = Theme.of(context).colorScheme;
+    final Color bg;
+    final Color fg;
+    switch (_readerTheme) {
+      case 'light':
+        bg = _lightBg;
+        fg = _lightFg;
+      case 'dark':
+        bg = _darkBg;
+        fg = _darkFg;
+      case 'sepia':
+        bg = _sepiaBg;
+        fg = _sepiaFg;
+      default: // 'system'
+        bg = cs.surface;
+        fg = cs.onSurface;
+    }
     _flureadium.setEPUBPreferences(EPUBPreferences(
-      fontSize: 18,
-      fontFamily: '',
+      fontSize: _fontSize.round(),
+      fontFamily: _fontFamily,
       fontWeight: 0.4,
       verticalScroll: false,
-      backgroundColor: cs.surface,
-      textColor: cs.onSurface,
+      pageMargins: 0.06,
+      backgroundColor: bg,
+      textColor: fg,
     ));
   }
 
   // ─── Section label ────────────────────────────────────────────────────
-
-  Locator? _lastLocator;
 
   void _updateSectionLabel(Locator locator, Publication publication) {
     final title = locator.title;
@@ -252,6 +322,266 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
           'epub_locator_${widget.itemId}', json.encode(locator.toJson()));
     }
     ScopedPrefs.setDouble('epub_speed_${widget.itemId}', _speed);
+    // Global reader prefs are saved immediately when changed.
+  }
+
+  // ─── TOC sheet ───────────────────────────────────────────────────────
+
+  void _showTocSheet() {
+    final toc = _publication?.tableOfContents ?? [];
+    if (toc.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No table of contents available')));
+      return;
+    }
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (sheetCtx) {
+        final cs = Theme.of(sheetCtx).colorScheme;
+        return DraggableScrollableSheet(
+          initialChildSize: 0.6,
+          maxChildSize: 0.92,
+          expand: false,
+          builder: (_, scrollCtrl) => Column(
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: cs.onSurfaceVariant.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text('Contents',
+                  style: Theme.of(sheetCtx).textTheme.titleMedium),
+              const SizedBox(height: 8),
+              const Divider(height: 1),
+              Expanded(
+                child: ListView.builder(
+                  controller: scrollCtrl,
+                  itemCount: toc.length,
+                  itemBuilder: (_, i) {
+                    final link = toc[i];
+                    final title = link.title?.isNotEmpty == true
+                        ? link.title!
+                        : link.href;
+                    return ListTile(
+                      title: Text(title),
+                      onTap: () {
+                        Navigator.pop(sheetCtx);
+                        _flureadium.goByLink(link.href);
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // ─── Settings sheet ───────────────────────────────────────────────────
+
+  void _showSettingsSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (sheetCtx) {
+        return StatefulBuilder(builder: (sheetCtx, setSheetState) {
+          final cs = Theme.of(sheetCtx).colorScheme;
+
+          void applyAndSave() {
+            _applyPreferences();
+            setSheetState(() {});
+          }
+
+          return SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // ── Handle ──────────────────────────────────────────
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: cs.onSurfaceVariant.withValues(alpha: 0.4),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+
+                  // ── Font size ────────────────────────────────────────
+                  Row(children: [
+                    Text('Text size',
+                        style: TextStyle(
+                            color: cs.onSurfaceVariant, fontSize: 13)),
+                    const Spacer(),
+                    _IconStepButton(
+                      icon: Icons.remove_rounded,
+                      enabled: _fontSize > 14,
+                      onPressed: () {
+                        setState(() => _fontSize =
+                            (_fontSize - 2).clamp(14, 28));
+                        ScopedPrefs.setDouble(_kFontSize, _fontSize);
+                        applyAndSave();
+                      },
+                    ),
+                    SizedBox(
+                      width: 40,
+                      child: Text(
+                        '${_fontSize.round()}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w600, fontSize: 15),
+                      ),
+                    ),
+                    _IconStepButton(
+                      icon: Icons.add_rounded,
+                      enabled: _fontSize < 28,
+                      onPressed: () {
+                        setState(() => _fontSize =
+                            (_fontSize + 2).clamp(14, 28));
+                        ScopedPrefs.setDouble(_kFontSize, _fontSize);
+                        applyAndSave();
+                      },
+                    ),
+                  ]),
+
+                  const SizedBox(height: 16),
+
+                  // ── Font family ──────────────────────────────────────
+                  Text('Font',
+                      style:
+                          TextStyle(color: cs.onSurfaceVariant, fontSize: 13)),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: List.generate(_fontFamilies.length, (i) {
+                      final selected = _fontFamily == _fontFamilies[i];
+                      return Expanded(
+                        child: Padding(
+                          padding: EdgeInsets.only(
+                              right: i < _fontFamilies.length - 1 ? 8 : 0),
+                          child: FilledButton.tonal(
+                            onPressed: () {
+                              setState(() => _fontFamily = _fontFamilies[i]);
+                              ScopedPrefs.setString(
+                                  _kFontFamily, _fontFamily);
+                              applyAndSave();
+                            },
+                            style: selected
+                                ? FilledButton.styleFrom(
+                                    backgroundColor: cs.primary,
+                                    foregroundColor: cs.onPrimary,
+                                  )
+                                : null,
+                            child: Text(_fontFamilyLabels[i]),
+                          ),
+                        ),
+                      );
+                    }),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // ── Theme ────────────────────────────────────────────
+                  Text('Theme',
+                      style:
+                          TextStyle(color: cs.onSurfaceVariant, fontSize: 13)),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      _buildThemeOption(
+                          sheetCtx, setSheetState, applyAndSave,
+                          key: 'system',
+                          icon: Icons.brightness_auto_rounded,
+                          label: 'Auto'),
+                      const SizedBox(width: 8),
+                      _buildThemeOption(
+                          sheetCtx, setSheetState, applyAndSave,
+                          key: 'light',
+                          icon: Icons.light_mode_rounded,
+                          label: 'Light'),
+                      const SizedBox(width: 8),
+                      _buildThemeOption(
+                          sheetCtx, setSheetState, applyAndSave,
+                          key: 'dark',
+                          icon: Icons.dark_mode_rounded,
+                          label: 'Dark'),
+                      const SizedBox(width: 8),
+                      _buildThemeOption(
+                          sheetCtx, setSheetState, applyAndSave,
+                          key: 'sepia',
+                          icon: Icons.wb_sunny_outlined,
+                          label: 'Sepia'),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        });
+      },
+    );
+  }
+
+  Widget _buildThemeOption(
+    BuildContext sheetCtx,
+    StateSetter setSheetState,
+    VoidCallback applyAndSave, {
+    required String key,
+    required IconData icon,
+    required String label,
+  }) {
+    final selected = _readerTheme == key;
+    final cs = Theme.of(sheetCtx).colorScheme;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () {
+          setState(() => _readerTheme = key);
+          ScopedPrefs.setString(_kTheme, _readerTheme);
+          applyAndSave();
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: selected
+                ? cs.primary.withValues(alpha: 0.15)
+                : cs.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(10),
+            border: selected
+                ? Border.all(color: cs.primary, width: 1.5)
+                : null,
+          ),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon,
+                size: 20,
+                color: selected ? cs.primary : cs.onSurfaceVariant),
+            const SizedBox(height: 4),
+            Text(label,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: selected ? cs.primary : cs.onSurfaceVariant,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                )),
+          ]),
+        ),
+      ),
+    );
   }
 
   // ─── Formatting ───────────────────────────────────────────────────────
@@ -272,6 +602,7 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final hasAudio = _hasMediaOverlays && _publication != null;
+    final hasPub = _publication != null;
 
     return Scaffold(
       backgroundColor: cs.surface,
@@ -292,6 +623,18 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
         foregroundColor: cs.onSurface,
         elevation: 0,
         actions: [
+          if (hasPub)
+            IconButton(
+              icon: const Icon(Icons.toc_rounded),
+              tooltip: 'Table of contents',
+              onPressed: _showTocSheet,
+            ),
+          if (hasPub)
+            IconButton(
+              icon: const Icon(Icons.text_fields_rounded),
+              tooltip: 'Reading settings',
+              onPressed: _showSettingsSheet,
+            ),
           if (hasAudio) _buildSpeedButton(cs),
           IconButton(
             icon: const Icon(Icons.chevron_left_rounded),
@@ -334,13 +677,26 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
         ),
       );
     }
-    return ReadiumReaderWidget(
-      publication: _publication!,
-      initialLocator: _initialLocator,
-      onLocatorChanged: (locator) {
-        _lastLocator = locator;
-        _updateSectionLabel(locator, _publication!);
-      },
+    return Column(
+      children: [
+        LinearProgressIndicator(
+          value: _readingProgress,
+          minHeight: 2,
+          backgroundColor: Colors.transparent,
+          valueColor: AlwaysStoppedAnimation<Color>(
+              cs.primary.withValues(alpha: 0.5)),
+        ),
+        Expanded(
+          child: ReadiumReaderWidget(
+            publication: _publication!,
+            initialLocator: _initialLocator,
+            onLocatorChanged: (locator) {
+              _lastLocator = locator;
+              _updateSectionLabel(locator, _publication!);
+            },
+          ),
+        ),
+      ],
     );
   }
 
@@ -493,6 +849,30 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
           ),
         ),
       ),
+    );
+  }
+}
+
+// ─── Helper widget ────────────────────────────────────────────────────────────
+
+class _IconStepButton extends StatelessWidget {
+  final IconData icon;
+  final bool enabled;
+  final VoidCallback onPressed;
+
+  const _IconStepButton({
+    required this.icon,
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      icon: Icon(icon),
+      iconSize: 22,
+      onPressed: enabled ? onPressed : null,
+      color: Theme.of(context).colorScheme.onSurface,
     );
   }
 }
