@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flureadium/flureadium.dart';
-import 'package:provider/provider.dart';
+import 'package:provider/provider.dart' hide Locator;
 import '../providers/auth_provider.dart';
 import '../services/audio_player_service.dart';
 import '../services/epub_service.dart';
