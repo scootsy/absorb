@@ -165,7 +165,7 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
 
     if (!mounted) return;
 
-    final hasMediaOverlays = publication.containsMediaOverlays;
+    final hasMediaOverlays = publication.containsMediaOverlays();
 
     // Restore saved position.
     Locator? initialLocator;
