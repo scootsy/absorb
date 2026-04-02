@@ -82,7 +82,7 @@ void main() {
   // ─── Time parsing ──────────────────────────────────────────────────────
 
   group('SmilService time parsing (via parseSmilFile)', () {
-    SmilClip _clip(String begin, String end) {
+    SmilClip clip(String begin, String end) {
       final xml = '''<?xml version="1.0"?>
 <smil xmlns="http://www.w3.org/ns/SMIL" version="3.0">
   <body>
@@ -96,38 +96,38 @@ void main() {
     }
 
     test('H:MM:SS.mmm', () {
-      final c = _clip('1:23:45.678', '2:00:00.000');
+      final c = clip('1:23:45.678', '2:00:00.000');
       expect(c.clipBegin,
           const Duration(hours: 1, minutes: 23, seconds: 45, milliseconds: 678));
       expect(c.clipEnd, const Duration(hours: 2));
     });
 
     test('MM:SS.mmm', () {
-      final c = _clip('23:45.678', '59:59.999');
+      final c = clip('23:45.678', '59:59.999');
       expect(c.clipBegin,
           const Duration(minutes: 23, seconds: 45, milliseconds: 678));
     });
 
     test('SS.mmm', () {
-      final c = _clip('45.678', '120.000');
+      final c = clip('45.678', '120.000');
       expect(c.clipBegin, const Duration(seconds: 45, milliseconds: 678));
       expect(c.clipEnd, const Duration(seconds: 120));
     });
 
     test('trailing s suffix', () {
-      final c = _clip('3.5s', '7.25s');
+      final c = clip('3.5s', '7.25s');
       expect(c.clipBegin, const Duration(seconds: 3, milliseconds: 500));
       expect(c.clipEnd, const Duration(seconds: 7, milliseconds: 250));
     });
 
     test('zero', () {
-      final c = _clip('0', '0');
+      final c = clip('0', '0');
       expect(c.clipBegin, Duration.zero);
     });
 
     test('fractional seconds with fewer than 3 digits', () {
       // "3.5" should be 3500ms, not 5ms
-      final c = _clip('3.5', '10.50');
+      final c = clip('3.5', '10.50');
       expect(c.clipBegin, const Duration(seconds: 3, milliseconds: 500));
       expect(c.clipEnd, const Duration(seconds: 10, milliseconds: 500));
     });
@@ -137,7 +137,7 @@ void main() {
 
   group('SmilIndex.clipAt', () {
     // Build a minimal index: one audio file, three clips
-    SmilIndex _buildTestIndex() {
+    SmilIndex buildTestIndex() {
       const xml = '''<?xml version="1.0"?>
 <smil xmlns="http://www.w3.org/ns/SMIL" version="3.0">
   <body>
@@ -158,7 +158,7 @@ void main() {
     }
 
     test('returns correct clip for positions within ranges', () {
-      final idx = _buildTestIndex();
+      final idx = buildTestIndex();
       expect(idx.clipAt(Duration.zero)?.fragId, 's1');
       expect(idx.clipAt(const Duration(seconds: 1))?.fragId, 's1');
       expect(idx.clipAt(const Duration(milliseconds: 2999))?.fragId, 's1');
@@ -170,7 +170,7 @@ void main() {
     });
 
     test('returns null past the last clip', () {
-      final idx = _buildTestIndex();
+      final idx = buildTestIndex();
       expect(idx.clipAt(const Duration(seconds: 11)), isNull);
     });
 
@@ -184,7 +184,7 @@ void main() {
   // ─── SmilIndex.beginForFrag ─────────────────────────────────────────────
 
   group('SmilIndex.beginForFrag', () {
-    SmilIndex _buildIndex() {
+    SmilIndex buildIndex() {
       const xml = '''<?xml version="1.0"?>
 <smil xmlns="http://www.w3.org/ns/SMIL" version="3.0">
   <body>
@@ -202,13 +202,13 @@ void main() {
     }
 
     test('returns correct begin time for known fragment', () {
-      final idx = _buildIndex();
+      final idx = buildIndex();
       expect(idx.beginForFrag('sentence-1'), const Duration(seconds: 1));
       expect(idx.beginForFrag('sentence-2'), const Duration(milliseconds: 4500));
     });
 
     test('returns null for unknown fragment', () {
-      final idx = _buildIndex();
+      final idx = buildIndex();
       expect(idx.beginForFrag('nonexistent'), isNull);
     });
   });
