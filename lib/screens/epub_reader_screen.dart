@@ -374,7 +374,7 @@ class _EpubReaderScreenState extends State<EpubReaderScreen>
                       title: Text(title),
                       onTap: () {
                         Navigator.pop(sheetCtx);
-                        _flureadium.goByLink(link.href);
+                        _flureadium.goByLink(link, _publication!);
                       },
                     );
                   },
